@@ -116,7 +116,7 @@ class StationResponse(TypedDict):
 # General Functions
 def get_ffmpeg_path():
     base = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
-    return os.path.join(base, "ffmpeg", "ffplay.exe")
+    return os.path.join(base, "ffmpeg", "windows" if os.name == "nt" else "linux", f"ffplay{".exe" if os.name == "nt" else ""}")
 
 def stop_player():
     global player
