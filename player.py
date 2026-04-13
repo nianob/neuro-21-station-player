@@ -137,7 +137,7 @@ def play_stream():
 def load_vars(data: dict):
     global size, fps, content_width, content_padding, border_radius, author_scale, blur_scale, darken_factor, controls_size, button_color
     global mute_icon_bin, unmute_icon_bin, button_icon_size, font_quality, font_color, button_font_color, volume, stream_type
-    global stream_type_button_scale, playing, data_url, progress_bar_size, progress_bar_color
+    global stream_type_button_scale, playing, data_url, progress_bar_size, progress_bar_color, button_text_size
     size = data["size"]
     fps = data["fps"]
     content_width = data["content_width"]
@@ -161,6 +161,7 @@ def load_vars(data: dict):
     data_url = data["data_url"]
     progress_bar_size = data["progress_bar_size"]
     progress_bar_color = data["progress_bar_color"]
+    button_text_size = data["button_text_size"]
 
 
 # ----------------------------------------------------------------
@@ -222,14 +223,14 @@ def draw_fg() -> pygame.Surface:
     mute_unmute_hitbox.top = int(controls_rect.top)
     pygame.draw.rect(surface, button_color, (surface.get_width()-surface.get_height()*(2+stream_type_button_scale), surface.get_height()*(1-stream_type_button_scale)/2, surface.get_height()*2*stream_type_button_scale, surface.get_height()*stream_type_button_scale), border_radius=int(surface.get_height()*stream_type_button_scale))
     stream_type_button_text = font.render(stream_type, False, button_font_color)
-    scaled_stream_type_button_text = pygame.transform.scale_by(stream_type_button_text, min(stream_type_button_hitbox.width/stream_type_button_text.get_width(), stream_type_button_hitbox.height/stream_type_button_text.get_height())*button_icon_size)
+    scaled_stream_type_button_text = pygame.transform.scale_by(stream_type_button_text, min(stream_type_button_hitbox.width/stream_type_button_text.get_width(), stream_type_button_hitbox.height/stream_type_button_text.get_height())*button_text_size)
     surface.blit(scaled_stream_type_button_text, (surface.get_width()-2*surface.get_height()-scaled_stream_type_button_text.get_width()/2, surface.get_height()/2-scaled_stream_type_button_text.get_height()/2))
     stream_type_button_hitbox.left = int(surface.get_width()-surface.get_height()*(2+stream_type_button_scale)+controls_rect.left)
     stream_type_button_hitbox.top = int(surface.get_height()*(1-stream_type_button_scale)/2+controls_rect.top)
     progress_bar_rect = pygame.Rect((surface.get_width()-3*surface.get_height())/2-(surface.get_width()-3*surface.get_height())*progress_bar_size[0]/2, surface.get_height()/2-surface.get_height()*progress_bar_size[1]/2, (surface.get_width()-3*surface.get_height())*progress_bar_size[0], surface.get_height()*progress_bar_size[1])
     pygame.draw.rect(surface, progress_bar_color, progress_bar_rect, border_radius=progress_bar_rect.height//2)
     progress = progress_bar_rect.copy()
-    progress.width = int(min(max(progress.width * (time.time()-data["now_playing"]["played_at"])/data["now_playing"]["duration"], progress.height), progress.width))
+    progress.width = int(min((progress.width-progress.height) * (time.time()-data["now_playing"]["played_at"])/data["now_playing"]["duration"] + progress.height, progress.width))
     pygame.draw.rect(surface, button_color, progress, border_radius=min(progress.height, progress.width)//2)
     return surface
 
@@ -258,6 +259,7 @@ playing: bool = False
 data_url: str = ""
 progress_bar_size: tuple[float, float] = (0, 0)
 progress_bar_color: tuple[int, int, int, int] = (0, 0, 0, 0)
+button_text_size: float = 0
 
 # ----------------------------------------------------------------
 # Main
@@ -277,7 +279,7 @@ clock = pygame.time.Clock()
 background = pygame.Surface(size)
 controls_rect = pygame.Rect(size[0]*(1-content_width)/2, 0, size[0]*content_width, size[0]*controls_size)
 mute_unmute_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_size)
-stream_type_button_hitbox = pygame.Rect(0, 0, size[0]*controls_size*2, size[0]*controls_size)
+stream_type_button_hitbox = pygame.Rect(0, 0, size[0]*controls_size*2*stream_type_button_scale, size[0]*controls_size*stream_type_button_scale)
 mute_icon = pygame.transform.smoothscale(pygame.image.load(BytesIO(base64.b64decode(mute_icon_bin))), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 unmute_icon = pygame.transform.smoothscale(pygame.image.load(BytesIO(base64.b64decode(unmute_icon_bin))), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 image_url = ""
@@ -296,18 +298,18 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
             noMenu = not noMenu
-        if noMenu and event.type == pygame.MOUSEBUTTONDOWN:
+        elif noMenu and event.type == pygame.MOUSEBUTTONDOWN:
             noMenu = False
-        if not noMenu:
+        elif not noMenu:
             if (event.type == pygame.MOUSEBUTTONDOWN and mute_unmute_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE):
                 playing = not playing
                 if playing:
                     play_stream()
                 else:
                     stop_player()
-            if event.type == pygame.MOUSEBUTTONDOWN and stream_type_button_hitbox.collidepoint(event.pos):
+            elif event.type == pygame.MOUSEBUTTONDOWN and stream_type_button_hitbox.collidepoint(event.pos):
                 if stream_type == "hls":
                     stream_type = "mp3"
                 else:

@@ -21,5 +21,6 @@
     "playing": false,
     "data_url": "https://radio.twinskaraoke.com/api/nowplaying_static/neuro_21.json",
     "progress_bar_size": [0.9, 0.5],
-    "progress_bar_color": [255, 255, 255, 100]
+    "progress_bar_color": [255, 255, 255, 100],
+    "button_text_size": 0.63
 }
