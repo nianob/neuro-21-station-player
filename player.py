@@ -17,6 +17,10 @@ from io import BytesIO
 from typing import TypedDict, Optional, Literal
 
 # ----------------------------------------------------------------
+# Constants
+CREATE_NO_WINDOW = 0x08000000
+
+# ----------------------------------------------------------------
 # Types
 class StationListeners(TypedDict):
     total: int
@@ -120,7 +124,7 @@ def stop_player():
 def play_stream():
     global player
     url = data["station"]["hls_url"] if stream_type == "hls" else data["station"]["listen_url"]
-    player = subprocess.Popen([get_ffmpeg_path(), "-nodisp", "-loglevel", "quiet", url, "-af", f"volume={volume}"])
+    player = subprocess.Popen([get_ffmpeg_path(), "-nodisp", "-loglevel", "quiet", url, "-af", f"volume={volume}"], creationflags=CREATE_NO_WINDOW)
 
 def load_vars(data: dict):
     global size, fps, content_width, content_padding, border_radius, author_scale, blur_scale, darken_factor, controls_size, button_color
@@ -308,6 +312,8 @@ slider_hitbox = pygame.Rect(0, 0, 0, 0)
 mute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "mute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 unmute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "unmute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 open_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "open.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
+window_icon = pygame.image.load(os.path.join(working_dir, "data", "icon.ico"))
+pygame.display.set_icon(window_icon)
 image_url = ""
 loading = False
 refresh_bg = False
