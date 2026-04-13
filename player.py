@@ -1,18 +1,5 @@
-"""Displays the infos about the Neuro 21 Station
-
-Args:
-    --size:
-        the size of the Window. Defaults to 900x900.
-    --fps:
-        the Refresh Rate. Defaults to 10.
-    --help:
-        displays this menu.
-"""
-
 # ----------------------------------------------------------------
 # Imports
-
-import base64
 import json
 import os
 import pygame
@@ -22,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance
@@ -136,8 +124,8 @@ def play_stream():
 
 def load_vars(data: dict):
     global size, fps, content_width, content_padding, border_radius, author_scale, blur_scale, darken_factor, controls_size, button_color
-    global mute_icon_bin, unmute_icon_bin, button_icon_size, font_quality, font_color, button_font_color, volume, stream_type
-    global stream_type_button_scale, playing, data_url, progress_bar_size, progress_bar_color, button_text_size
+    global button_icon_size, font_quality, font_color, button_font_color, volume, stream_type, stream_type_button_scale, playing, data_url
+    global progress_bar_size, progress_bar_color, button_text_size, mono_font_name, timer_size, open_link, slider_size, slider_bar_size
     size = data["size"]
     fps = data["fps"]
     content_width = data["content_width"]
@@ -148,8 +136,6 @@ def load_vars(data: dict):
     darken_factor = data["darken_factor"]
     controls_size = data["controls_size"]
     button_color = data["button_color"]
-    mute_icon_bin = data["mute_icon_bin"]
-    unmute_icon_bin = data["unmute_icon_bin"]
     button_icon_size = data["button_icon_size"]
     font_quality = data["font_quality"]
     font_color = data["font_color"]
@@ -162,6 +148,15 @@ def load_vars(data: dict):
     progress_bar_size = data["progress_bar_size"]
     progress_bar_color = data["progress_bar_color"]
     button_text_size = data["button_text_size"]
+    mono_font_name = data["mono_font_name"]
+    timer_size = data["timer_size"]
+    open_link = data["open_link"]
+    slider_size = data["slider_size"]
+    slider_bar_size = data["slider_bar_size"]
+
+def ensure_data_file(name: str):
+    if not os.path.exists(os.path.join(data_dir, name)):
+        shutil.copyfile(os.path.join(working_dir, "data", name), os.path.join(data_dir, name))
 
 
 # ----------------------------------------------------------------
@@ -190,9 +185,9 @@ def draw_bg(data: StationResponse) -> None:
     scaled_author = pygame.transform.scale_by(author, title_scale_factor*author_scale)
     text_rect = pygame.Rect(
         size[0]*(1-(content_width + content_padding*2))/2,
-        size[1]/2 - ((scaled_title.get_height()+scaled_author.get_height())/2 + size[1]*content_padding*1.5) - controls_size*size[0]/2,
+        size[1]/2 - ((scaled_title.get_height()+scaled_author.get_height())/2 + size[1]*content_padding*1.5) - controls_size*size[0],
         size[0]*(content_width + content_padding*2),
-        scaled_title.get_height() + scaled_author.get_height() + size[1]*content_padding*3 + controls_size*size[0])
+        scaled_title.get_height() + scaled_author.get_height() + size[1]*content_padding*3 + controls_size*size[0]*2)
     masksurf = pygame.Surface(size)
     masksurf.fill((0, 0, 0))
     pygame.draw.rect(masksurf, (255, 255, 255), text_rect, border_radius=round(max(size)*border_radius))
@@ -200,9 +195,10 @@ def draw_bg(data: StationResponse) -> None:
     mask = pygame.mask.from_threshold(masksurf, (255, 255, 255), (127, 127, 127, 127))
     background.fill((0, 0, 0))
     mask.to_surface(background, setsurface=blurred_image, unsetsurface=scaled_image)
-    background.blit(scaled_title, (size[0]/2 - scaled_title.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 - controls_size*size[0]/2 - size[1]*content_padding*0.5))
-    background.blit(scaled_author, (size[0]/2 - scaled_author.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 + scaled_title.get_height() - controls_size*size[0]/2 - size[1]*content_padding*0.5))
-    controls_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 - controls_size*size[0]//2 + size[1]*content_padding*0.5)
+    background.blit(scaled_title, (size[0]/2 - scaled_title.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 - controls_size*size[0] - size[1]*content_padding*0.5))
+    background.blit(scaled_author, (size[0]/2 - scaled_author.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 + scaled_title.get_height() - controls_size*size[0] - size[1]*content_padding*0.5))
+    row_1_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 - controls_size*size[0] + size[1]*content_padding*0.5)
+    row_2_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 + size[1]*content_padding*0.5)
 
 def reload_data() -> None:
     global data, image, loading, refresh_bg, image_url
@@ -211,27 +207,47 @@ def reload_data() -> None:
     if image_url != data["now_playing"]["song"]["art"]:
         image = Image.open(fetch_image(data["now_playing"]["song"]["art"])).resize(size)
         image_url = data["now_playing"]["song"]["art"]
-    refresh_bg = True
+        refresh_bg = True
     loading = False
 
-def draw_fg() -> pygame.Surface:
-    global mute_unmute_hitbox
-    surface = pygame.Surface(controls_rect.size, pygame.SRCALPHA)
+def draw_row_1() -> pygame.Surface:
+    surface = pygame.Surface(row_1_rect.size, pygame.SRCALPHA)
     pygame.draw.circle(surface, button_color, (surface.get_width()-surface.get_height()/2, surface.get_height()/2), surface.get_height()/2)
     surface.blit(unmute_icon if playing else mute_icon, (surface.get_width()-surface.get_height()*(1-(1-button_icon_size)/2), surface.get_height()*(1-button_icon_size)/2))
-    mute_unmute_hitbox.left = int(surface.get_width()-surface.get_height()+controls_rect.left)
-    mute_unmute_hitbox.top = int(controls_rect.top)
+    mute_unmute_hitbox.left = int(surface.get_width()-surface.get_height()+row_1_rect.left)
+    mute_unmute_hitbox.top = int(row_1_rect.top)
     pygame.draw.rect(surface, button_color, (surface.get_width()-surface.get_height()*(2+stream_type_button_scale), surface.get_height()*(1-stream_type_button_scale)/2, surface.get_height()*2*stream_type_button_scale, surface.get_height()*stream_type_button_scale), border_radius=int(surface.get_height()*stream_type_button_scale))
     stream_type_button_text = font.render(stream_type, False, button_font_color)
     scaled_stream_type_button_text = pygame.transform.scale_by(stream_type_button_text, min(stream_type_button_hitbox.width/stream_type_button_text.get_width(), stream_type_button_hitbox.height/stream_type_button_text.get_height())*button_text_size)
     surface.blit(scaled_stream_type_button_text, (surface.get_width()-2*surface.get_height()-scaled_stream_type_button_text.get_width()/2, surface.get_height()/2-scaled_stream_type_button_text.get_height()/2))
-    stream_type_button_hitbox.left = int(surface.get_width()-surface.get_height()*(2+stream_type_button_scale)+controls_rect.left)
-    stream_type_button_hitbox.top = int(surface.get_height()*(1-stream_type_button_scale)/2+controls_rect.top)
+    stream_type_button_hitbox.left = int(surface.get_width()-surface.get_height()*(2+stream_type_button_scale)+row_1_rect.left)
+    stream_type_button_hitbox.top = int(surface.get_height()*(1-stream_type_button_scale)/2+row_1_rect.top)
     progress_bar_rect = pygame.Rect((surface.get_width()-3*surface.get_height())/2-(surface.get_width()-3*surface.get_height())*progress_bar_size[0]/2, surface.get_height()/2-surface.get_height()*progress_bar_size[1]/2, (surface.get_width()-3*surface.get_height())*progress_bar_size[0], surface.get_height()*progress_bar_size[1])
     pygame.draw.rect(surface, progress_bar_color, progress_bar_rect, border_radius=progress_bar_rect.height//2)
     progress = progress_bar_rect.copy()
     progress.width = int(min((progress.width-progress.height) * (time.time()-data["now_playing"]["played_at"])/data["now_playing"]["duration"] + progress.height, progress.width))
     pygame.draw.rect(surface, button_color, progress, border_radius=min(progress.height, progress.width)//2)
+    return surface
+
+def draw_row_2() -> pygame.Surface:
+    surface = pygame.Surface(row_2_rect.size, pygame.SRCALPHA)
+    currentplaytime = max(time.time()-data["now_playing"]["played_at"], 0)
+    timer = mono_font.render(f"{int(currentplaytime//60)}:{int(currentplaytime%60):02} / {int(data["now_playing"]['duration']//60)}:{int(data["now_playing"]['duration']%60):02}", False, font_color)
+    scaled_timer = pygame.transform.scale_by(timer, surface.get_height()/timer.get_height()*timer_size)
+    surface.blit(scaled_timer, (0, 0))
+    pygame.draw.circle(surface, button_color, (surface.get_width()-surface.get_height()*(1+(1-stream_type_button_scale)/2), surface.get_height()/2), surface.get_height()/2)
+    surface.blit(open_icon, (surface.get_width()-surface.get_height()*(1+(1-stream_type_button_scale)/2)-open_icon.get_width()/2, surface.get_height()*(1-button_icon_size)/2))
+    open_hitbox.left = int(surface.get_width()-surface.get_height()*(1.5+(1-stream_type_button_scale)/2)+row_2_rect.left)
+    open_hitbox.top = row_2_rect.top
+    full_slider_width = surface.get_width()-surface.get_height()*(1+(1-stream_type_button_scale)/2)-open_icon.get_width()/2-scaled_timer.get_width()
+    slider_hitbox.width = int(full_slider_width*slider_size)
+    slider_hitbox.height = int(surface.get_height()*slider_size)
+    slider_hitbox.left = int(scaled_timer.get_width()+full_slider_width/2-slider_hitbox.width/2)
+    slider_hitbox.top = int(surface.get_height()/2-slider_hitbox.height/2)
+    pygame.draw.rect(surface, progress_bar_color, (slider_hitbox.left, surface.get_height()*(1-slider_bar_size)/2, slider_hitbox.width, surface.get_height()*slider_bar_size), border_radius=int(surface.get_height()*slider_bar_size/2))
+    pygame.draw.rect(surface, button_color, (slider_hitbox.left+slider_hitbox.width*volume-surface.get_height()*slider_bar_size/2, slider_hitbox.top, surface.get_height()*slider_bar_size, slider_hitbox.height), border_radius=int(surface.get_height()*slider_bar_size/2))
+    slider_hitbox.left += row_2_rect.left
+    slider_hitbox.top += row_2_rect.top
     return surface
 
 # ----------------------------------------------------------------
@@ -246,8 +262,6 @@ blur_scale: int = 0
 darken_factor: float = 0
 controls_size: float = 0
 button_color: tuple[int, int, int, int] = (0, 0, 0, 0)
-mute_icon_bin: str = ""
-unmute_icon_bin: str = ""
 button_icon_size: float = 0
 font_quality: int = 0
 font_color: tuple[int, int, int] = (0, 0, 0)
@@ -260,6 +274,11 @@ data_url: str = ""
 progress_bar_size: tuple[float, float] = (0, 0)
 progress_bar_color: tuple[int, int, int, int] = (0, 0, 0, 0)
 button_text_size: float = 0
+mono_font_name: str = ""
+timer_size: float = 0
+open_link: str = ""
+slider_size: float = 0
+slider_bar_size: float = 0
 
 # ----------------------------------------------------------------
 # Main
@@ -270,24 +289,32 @@ if not os.path.exists(data_dir):
     os.mkdir(data_dir)
 if not os.path.exists(settings_file_path):
     shutil.copyfile(os.path.join(working_dir, "data", "default_settings.json"), settings_file_path)
+for filename in ["mute.png", "unmute.png", "open.png"]:
+    ensure_data_file(filename)
 with open(settings_file_path, "r") as f:
     load_vars(json.load(f))
 pygame.font.init()
 screen = pygame.display.set_mode(size)
 font = pygame.font.SysFont(pygame.font.get_default_font(), font_quality)
+mono_font = pygame.font.SysFont(mono_font_name, font_quality)
 clock = pygame.time.Clock()
 background = pygame.Surface(size)
-controls_rect = pygame.Rect(size[0]*(1-content_width)/2, 0, size[0]*content_width, size[0]*controls_size)
+row_1_rect = pygame.Rect(size[0]*(1-content_width)/2, 0, size[0]*content_width, size[0]*controls_size)
+row_2_rect = pygame.Rect(size[0]*(1-content_width)/2, 0, size[0]*content_width, size[0]*controls_size)
 mute_unmute_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_size)
 stream_type_button_hitbox = pygame.Rect(0, 0, size[0]*controls_size*2*stream_type_button_scale, size[0]*controls_size*stream_type_button_scale)
-mute_icon = pygame.transform.smoothscale(pygame.image.load(BytesIO(base64.b64decode(mute_icon_bin))), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
-unmute_icon = pygame.transform.smoothscale(pygame.image.load(BytesIO(base64.b64decode(unmute_icon_bin))), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
+open_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_size)
+slider_hitbox = pygame.Rect(0, 0, 0, 0)
+mute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "mute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
+unmute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "unmute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
+open_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "open.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 image_url = ""
 loading = False
 refresh_bg = False
 running = True
 player = None
 noMenu = False
+slider_selected = False
 
 reload_cooldown_until = time.time() + 5
 reload_data()
@@ -317,9 +344,20 @@ while running:
                 stop_player()
                 if playing:
                     play_stream()
+            elif event.type == pygame.MOUSEBUTTONDOWN and open_hitbox.collidepoint(event.pos):
+                webbrowser.open(open_link%(data["now_playing"]["song"]["custom_fields"]["songId"]))
+            elif slider_selected and event.type == pygame.MOUSEMOTION:
+                volume = min(1, max(0, (event.pos[0]-slider_hitbox.left)/slider_hitbox.width))
+            elif event.type == pygame.MOUSEBUTTONDOWN and slider_hitbox.collidepoint(event.pos):
+                slider_selected = True
+            elif slider_selected and event.type == pygame.MOUSEBUTTONUP:
+                slider_selected = False
+                stop_player()
+                if playing:
+                    play_stream()
 
     mouse_pos = pygame.mouse.get_pos()
-    if (mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos)) and not noMenu:
+    if (mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos)) and not noMenu:
         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
     else:
         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
@@ -338,7 +376,8 @@ while running:
         screen.blit(scaled_image, (0, 0))
     else:
         screen.blit(background, (0, 0))
-        screen.blit(draw_fg(), controls_rect)
+        screen.blit(draw_row_1(), row_1_rect)
+        screen.blit(draw_row_2(), row_2_rect)
 
     clock.tick(fps)
     pygame.display.flip()
