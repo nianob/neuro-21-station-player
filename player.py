@@ -126,37 +126,11 @@ def play_stream():
     url = data["station"]["hls_url"] if stream_type == "hls" else data["station"]["listen_url"]
     player = subprocess.Popen([get_ffmpeg_path(), "-nodisp", "-loglevel", "quiet", url, "-af", f"volume={volume}"], creationflags=CREATE_NO_WINDOW)
 
-def load_vars(data: dict):
-    global size, fps, content_width, content_padding, border_radius, author_scale, blur_scale, darken_factor, controls_size, button_color
-    global button_icon_size, font_quality, font_color, button_font_color, volume, stream_type, stream_type_button_scale, playing, data_url
-    global progress_bar_size, progress_bar_color, button_text_size, mono_font_name, timer_size, open_link, slider_size, slider_bar_size
-    size = data["size"]
-    fps = data["fps"]
-    content_width = data["content_width"]
-    content_padding = data["content_padding"]
-    border_radius = data["border_radius"]
-    author_scale = data["author_scale"]
-    blur_scale = data["blur_scale"]
-    darken_factor = data["darken_factor"]
-    controls_size = data["controls_size"]
-    button_color = data["button_color"]
-    button_icon_size = data["button_icon_size"]
-    font_quality = data["font_quality"]
-    font_color = data["font_color"]
-    button_font_color = data["button_font_color"]
-    volume = data["volume"]
-    stream_type = data["stream_type"]
-    stream_type_button_scale = data["stream_type_button_scale"]
-    playing = data["playing"]
-    data_url = data["data_url"]
-    progress_bar_size = data["progress_bar_size"]
-    progress_bar_color = data["progress_bar_color"]
-    button_text_size = data["button_text_size"]
-    mono_font_name = data["mono_font_name"]
-    timer_size = data["timer_size"]
-    open_link = data["open_link"]
-    slider_size = data["slider_size"]
-    slider_bar_size = data["slider_bar_size"]
+def load_vars(data: dict, defaults: dict):
+    for key in defaults:
+        data[key] = data.get(key, defaults[key])
+        globals()[key] = data[key]
+    return data
 
 def ensure_data_file(name: str):
     if not os.path.exists(os.path.join(data_dir, name)):
@@ -296,7 +270,10 @@ if not os.path.exists(settings_file_path):
 for filename in ["mute.png", "unmute.png", "open.png"]:
     ensure_data_file(filename)
 with open(settings_file_path, "r") as f:
-    load_vars(json.load(f))
+    with open(os.path.join(working_dir, "data", "default_settings.json"), "r") as f2:
+        loaded_vars = load_vars(json.load(f), json.load(f2))
+with open(settings_file_path, "w") as f:
+    json.dump(loaded_vars, f, indent=4, sort_keys=True)
 pygame.font.init()
 screen = pygame.display.set_mode(size)
 font = pygame.font.SysFont(pygame.font.get_default_font(), font_quality)
