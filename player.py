@@ -229,7 +229,7 @@ def draw_fg() -> pygame.Surface:
     progress_bar_rect = pygame.Rect((surface.get_width()-3*surface.get_height())/2-(surface.get_width()-3*surface.get_height())*progress_bar_size[0]/2, surface.get_height()/2-surface.get_height()*progress_bar_size[1]/2, (surface.get_width()-3*surface.get_height())*progress_bar_size[0], surface.get_height()*progress_bar_size[1])
     pygame.draw.rect(surface, progress_bar_color, progress_bar_rect, border_radius=progress_bar_rect.height//2)
     progress = progress_bar_rect.copy()
-    progress.width = int(min(progress.width * (time.time()-data["now_playing"]["played_at"])/data["now_playing"]["duration"], progress.height))
+    progress.width = int(min(max(progress.width * (time.time()-data["now_playing"]["played_at"])/data["now_playing"]["duration"], progress.height), progress.width))
     pygame.draw.rect(surface, button_color, progress, border_radius=min(progress.height, progress.width)//2)
     return surface
 
