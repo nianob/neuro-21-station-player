@@ -1,0 +1,1 @@
+pyinstaller -y --onefile -n "Neuro 21 Station Player" --add-binary ffmpeg:ffmpeg --windowed ./player.py
