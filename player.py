@@ -135,7 +135,9 @@ def play_stream():
     player = subprocess.Popen([get_ffmpeg_path(), "-nodisp", "-loglevel", "quiet", url, "-af", f"volume={volume}"])
 
 def load_vars(data: dict):
-    global size, fps, content_width, content_padding, border_radius, author_scale, blur_scale, darken_factor, controls_size, button_color, mute_icon_bin, unmute_icon_bin, button_icon_size, font_quality, font_color, button_font_color, volume, stream_type, stream_type_button_scale, playing, data_url
+    global size, fps, content_width, content_padding, border_radius, author_scale, blur_scale, darken_factor, controls_size, button_color
+    global mute_icon_bin, unmute_icon_bin, button_icon_size, font_quality, font_color, button_font_color, volume, stream_type
+    global stream_type_button_scale, playing, data_url, progress_bar_size, progress_bar_color
     size = data["size"]
     fps = data["fps"]
     content_width = data["content_width"]
@@ -157,6 +159,8 @@ def load_vars(data: dict):
     stream_type_button_scale = data["stream_type_button_scale"]
     playing = data["playing"]
     data_url = data["data_url"]
+    progress_bar_size = data["progress_bar_size"]
+    progress_bar_color = data["progress_bar_color"]
 
 
 # ----------------------------------------------------------------
@@ -185,9 +189,9 @@ def draw_bg(data: StationResponse) -> None:
     scaled_author = pygame.transform.scale_by(author, title_scale_factor*author_scale)
     text_rect = pygame.Rect(
         size[0]*(1-(content_width + content_padding*2))/2,
-        size[1]/2 - ((scaled_title.get_height()+scaled_author.get_height())/2 + size[1]*content_padding) - controls_size*size[0]/2,
+        size[1]/2 - ((scaled_title.get_height()+scaled_author.get_height())/2 + size[1]*content_padding*1.5) - controls_size*size[0]/2,
         size[0]*(content_width + content_padding*2),
-        scaled_title.get_height() + scaled_author.get_height() + size[1]*content_padding*2 + controls_size*size[0])
+        scaled_title.get_height() + scaled_author.get_height() + size[1]*content_padding*3 + controls_size*size[0])
     masksurf = pygame.Surface(size)
     masksurf.fill((0, 0, 0))
     pygame.draw.rect(masksurf, (255, 255, 255), text_rect, border_radius=round(max(size)*border_radius))
@@ -195,9 +199,9 @@ def draw_bg(data: StationResponse) -> None:
     mask = pygame.mask.from_threshold(masksurf, (255, 255, 255), (127, 127, 127, 127))
     background.fill((0, 0, 0))
     mask.to_surface(background, setsurface=blurred_image, unsetsurface=scaled_image)
-    background.blit(scaled_title, (size[0]/2 - scaled_title.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 - controls_size*size[0]/2))
-    background.blit(scaled_author, (size[0]/2 - scaled_author.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 + scaled_title.get_height() - controls_size*size[0]/2))
-    controls_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 - controls_size*size[0]//2)
+    background.blit(scaled_title, (size[0]/2 - scaled_title.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 - controls_size*size[0]/2 - size[1]*content_padding*0.5))
+    background.blit(scaled_author, (size[0]/2 - scaled_author.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 + scaled_title.get_height() - controls_size*size[0]/2 - size[1]*content_padding*0.5))
+    controls_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 - controls_size*size[0]//2 + size[1]*content_padding*0.5)
 
 def reload_data() -> None:
     global data, image, loading, refresh_bg, image_url
@@ -222,6 +226,11 @@ def draw_fg() -> pygame.Surface:
     surface.blit(scaled_stream_type_button_text, (surface.get_width()-2*surface.get_height()-scaled_stream_type_button_text.get_width()/2, surface.get_height()/2-scaled_stream_type_button_text.get_height()/2))
     stream_type_button_hitbox.left = int(surface.get_width()-surface.get_height()*(2+stream_type_button_scale)+controls_rect.left)
     stream_type_button_hitbox.top = int(surface.get_height()*(1-stream_type_button_scale)/2+controls_rect.top)
+    progress_bar_rect = pygame.Rect((surface.get_width()-3*surface.get_height())/2-(surface.get_width()-3*surface.get_height())*progress_bar_size[0]/2, surface.get_height()/2-surface.get_height()*progress_bar_size[1]/2, (surface.get_width()-3*surface.get_height())*progress_bar_size[0], surface.get_height()*progress_bar_size[1])
+    pygame.draw.rect(surface, progress_bar_color, progress_bar_rect, border_radius=progress_bar_rect.height//2)
+    progress = progress_bar_rect.copy()
+    progress.width = int(min(progress.width * (time.time()-data["now_playing"]["played_at"])/data["now_playing"]["duration"], progress.height))
+    pygame.draw.rect(surface, button_color, progress, border_radius=min(progress.height, progress.width)//2)
     return surface
 
 # ----------------------------------------------------------------
@@ -247,7 +256,8 @@ stream_type: Literal["mp3", "hls"] = "mp3"
 stream_type_button_scale: float = 0
 playing: bool = False
 data_url: str = ""
-
+progress_bar_size: tuple[float, float] = (0, 0)
+progress_bar_color: tuple[int, int, int, int] = (0, 0, 0, 0)
 
 # ----------------------------------------------------------------
 # Main
