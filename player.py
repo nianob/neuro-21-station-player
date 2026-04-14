@@ -3,6 +3,7 @@
 import json
 import os
 import pygame
+import pypresence
 import requests
 import shutil
 import subprocess
@@ -177,7 +178,7 @@ def draw_bg(data: StationResponse) -> None:
     row_2_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 + size[1]*content_padding*0.5)
 
 def reload_data() -> None:
-    global data, image, loading, refresh_bg, image_url, error, data_loaded
+    global data, image, loading, refresh_bg, image_url, error, data_loaded, update_presence
     try:
         data = fetch_data()
         refresh_bg = True
@@ -186,6 +187,7 @@ def reload_data() -> None:
             image_url = data["now_playing"]["song"]["art"]
             refresh_bg = True
         data_loaded = True
+        update_presence = True
     except requests.RequestException as e:
         error = e.__class__.__name__
     finally:
@@ -277,6 +279,8 @@ error_pos: tuple[float, float] = (0, 0)
 error_relative_height: float = 0
 error_icon_scale: float = 0
 reload_cooldown: int = 0
+enable_discord_rich_presence: bool = False
+discord_client_id: int = 0
 
 # ----------------------------------------------------------------
 # Fallback Station Data
@@ -411,6 +415,11 @@ slider_selected = False
 error = None
 data_loaded = False
 data: StationResponse = fallbackData
+update_presence = False
+allow_update_presence = 0
+discord_rich_presence = pypresence.presence.Presence(discord_client_id) if enable_discord_rich_presence else None
+if enable_discord_rich_presence:
+    discord_rich_presence.connect()
 
 reload_cooldown_until = time.time() + 5
 reload_data()
@@ -438,6 +447,7 @@ while running:
                     play_stream()
                 else:
                     stop_player()
+                update_presence = True
             elif event.type == pygame.MOUSEBUTTONDOWN and stream_type_button_hitbox.collidepoint(event.pos):
                 if stream_type == "hls":
                     stream_type = "mp3"
@@ -468,6 +478,23 @@ while running:
         loading = True
         reload_cooldown_until = time.time() + 5
         threading.Thread(target=reload_data).start()
+
+    if discord_rich_presence and update_presence and time.time() > allow_update_presence:
+        if playing:
+            discord_rich_presence.update(
+                activity_type=pypresence.types.ActivityType.LISTENING,
+                name=data["station"]["name"],
+                state=f"{data["now_playing"]["song"]["artist"]} - {data["now_playing"]["song"]["title"]}",
+                start=data["now_playing"]["played_at"],
+                end=data["now_playing"]["played_at"]+data["now_playing"]["duration"])
+        else:
+            discord_rich_presence.update(
+                activity_type=pypresence.types.ActivityType.LISTENING,
+                name=data["station"]["name"],
+                state="Paused"
+            )
+        allow_update_presence = time.time() + 16
+        update_presence = False
 
     if data_loaded:
         if refresh_bg:
