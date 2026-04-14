@@ -25,5 +25,10 @@
     "timer_size": 0.5,
     "open_link": "https://neurokaraoke.com/song/%s",
     "slider_size": 0.8,
-    "slider_bar_size": 0.2
+    "slider_bar_size": 0.2,
+    "error_color": [255, 0, 0, 230],
+    "error_pos": [0.6, 0.1],
+    "error_relative_height": 0.4,
+    "error_icon_scale": 0.5,
+    "reload_cooldown": 5
 }

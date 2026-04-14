@@ -124,7 +124,7 @@ def stop_player():
 def play_stream():
     global player
     url = data["station"]["hls_url"] if stream_type == "hls" else data["station"]["listen_url"]
-    player = subprocess.Popen([get_ffmpeg_path(), "-nodisp", "-loglevel", "quiet", url, "-af", f"volume={volume}"], creationflags=CREATE_NO_WINDOW)
+    player = subprocess.Popen([get_ffmpeg_path(), "-nodisp", "-loglevel", "quiet", url, "-af", f"volume={volume}"], creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 def load_vars(data: dict, defaults: dict):
     for key in defaults:
@@ -135,7 +135,6 @@ def load_vars(data: dict, defaults: dict):
 def ensure_data_file(name: str):
     if not os.path.exists(os.path.join(data_dir, name)):
         shutil.copyfile(os.path.join(working_dir, "data", name), os.path.join(data_dir, name))
-
 
 # ----------------------------------------------------------------
 # Get & Process Data
@@ -151,7 +150,6 @@ def fetch_image(url: str) -> BytesIO:
 
 # ----------------------------------------------------------------
 # Render functions
-
 def draw_bg(data: StationResponse) -> None:
     global scaled_image
     scaled_image = pygame.image.frombytes(image.tobytes(), image.size, image.mode).convert() # type: ignore
@@ -179,14 +177,19 @@ def draw_bg(data: StationResponse) -> None:
     row_2_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 + size[1]*content_padding*0.5)
 
 def reload_data() -> None:
-    global data, image, loading, refresh_bg, image_url
-    data = fetch_data()
-    refresh_bg = True
-    if image_url != data["now_playing"]["song"]["art"]:
-        image = Image.open(fetch_image(data["now_playing"]["song"]["art"])).resize(size)
-        image_url = data["now_playing"]["song"]["art"]
+    global data, image, loading, refresh_bg, image_url, error, data_loaded
+    try:
+        data = fetch_data()
         refresh_bg = True
-    loading = False
+        if not data_loaded or image_url != data["now_playing"]["song"]["art"]:
+            image = Image.open(fetch_image(data["now_playing"]["song"]["art"])).resize(size)
+            image_url = data["now_playing"]["song"]["art"]
+            refresh_bg = True
+        data_loaded = True
+    except requests.RequestException as e:
+        error = e.__class__.__name__
+    finally:
+        loading = False
 
 def draw_row_1() -> pygame.Surface:
     surface = pygame.Surface(row_1_rect.size, pygame.SRCALPHA)
@@ -228,6 +231,18 @@ def draw_row_2() -> pygame.Surface:
     slider_hitbox.top += row_2_rect.top
     return surface
 
+def draw_error() -> pygame.Surface:
+    surface = pygame.Surface(error_hitbox.size, pygame.SRCALPHA)
+    pygame.draw.rect(surface, error_color, surface.get_rect(), border_top_left_radius=int(max(size)*border_radius), border_bottom_left_radius=int(max(size)*border_radius))
+    surface.blit(error_icon, (content_padding*size[0], surface.get_height()/2-error_icon.get_height()/2))
+    text = font.render(error, False, font_color)
+    scaled_text = pygame.transform.scale_by(text, (surface.get_width()-2*content_padding*size[0]-error_icon.get_width())/text.get_width())
+    surface.blit(scaled_text, (2*content_padding*size[0]+error_icon.get_width(), content_padding*size[1]))
+    reload_text = font.render("Click to Reload", False, font_color)
+    scaled_reload_text = pygame.transform.scale_by(reload_text, (surface.get_width()-2*content_padding*size[0]-error_icon.get_width())/reload_text.get_width())
+    surface.blit(scaled_reload_text, (2*content_padding*size[0]+error_icon.get_width(), surface.get_height()-content_padding*size[1]-scaled_reload_text.get_height()))
+    return surface
+
 # ----------------------------------------------------------------
 # Settings, are all overwritten by settingsfike, so everything is 0 here
 size: tuple[int, int] = (0, 0)
@@ -257,6 +272,93 @@ timer_size: float = 0
 open_link: str = ""
 slider_size: float = 0
 slider_bar_size: float = 0
+error_color: tuple[int, int, int] = (0, 0, 0)
+error_pos: tuple[float, float] = (0, 0)
+error_relative_height: float = 0
+error_icon_scale: float = 0
+reload_cooldown: int = 0
+
+# ----------------------------------------------------------------
+# Fallback Station Data
+fallbackData: StationResponse = {
+        "cache": "",
+        "is_online": False,
+        "listeners": {
+            "current": 0,
+            "total": 0,
+            "unique": 0
+            },
+        "live": {
+            "art": None,
+            "broadcast_start": None,
+            "streamer_name": "",
+            "is_live": False
+        },
+        "now_playing": {
+            "duration": 1,
+            "elapsed": 0,
+            "is_request": False,
+            "played_at": 0,
+            "playlist": "",
+            "remaining": 0,
+            "sh_id": 0,
+            "song": {
+                "album": "",
+                "art": "",
+                "artist": "???",
+                "custom_fields": {},
+                "genre": "",
+                "id": "",
+                "isrc": "",
+                "lyrics": "",
+                "text": "",
+                "title": "???"
+            },
+            "streamer": ""
+        },
+        "playing_next": {
+            "cued_at": 0,
+            "duration": 1,
+            "is_request": False,
+            "played_at": 0,
+            "playlist": "",
+            "song": {
+                "album": "",
+                "art": "",
+                "artist": "???",
+                "custom_fields": {},
+                "genre": "",
+                "id": "",
+                "isrc": "",
+                "lyrics": "",
+                "text": "",
+                "title": "???"
+            }
+        },
+        "song_history": [],
+        "station": {
+            "backend": "",
+            "description": "",
+            "frontend": "",
+            "hls_enabled": False,
+            "hls_is_default": False,
+            "hls_listeners": 0,
+            "hls_url": "",
+            "id": 0,
+            "is_public": False,
+            "listen_url": "",
+            "mounts": [],
+            "name": "",
+            "playlist_m3u_url": "",
+            "playlist_pls_url": "",
+            "public_player_url": "",
+            "remotes": [],
+            "requests_enabled": False,
+            "shortcode": "",
+            "timezone": "",
+            "url": ""
+        },
+    }
 
 # ----------------------------------------------------------------
 # Main
@@ -267,7 +369,7 @@ if not os.path.exists(data_dir):
     os.mkdir(data_dir)
 if not os.path.exists(settings_file_path):
     shutil.copyfile(os.path.join(working_dir, "data", "default_settings.json"), settings_file_path)
-for filename in ["mute.png", "unmute.png", "open.png"]:
+for filename in ["mute.png", "unmute.png", "open.png", "error.png"]:
     ensure_data_file(filename)
 with open(settings_file_path, "r") as f:
     with open(os.path.join(working_dir, "data", "default_settings.json"), "r") as f2:
@@ -276,7 +378,13 @@ with open(settings_file_path, "w") as f:
     json.dump(loaded_vars, f, indent=4, sort_keys=True)
 pygame.font.init()
 screen = pygame.display.set_mode(size)
+pygame.display.set_caption("Neuro 21 Station Player - Loading")
 font = pygame.font.SysFont(pygame.font.get_default_font(), font_quality)
+screen.fill((0, 0, 0))
+loadingText = font.render("Loading...", False, (255, 255, 255))
+scaledLoadingText = pygame.transform.scale_by(loadingText, screen.get_width()/loadingText.get_width()/2)
+screen.blit(scaledLoadingText, (screen.get_width()/2-scaledLoadingText.get_width()/2, screen.get_height()/2-scaledLoadingText.get_height()/2))
+pygame.display.flip()
 mono_font = pygame.font.SysFont(mono_font_name, font_quality)
 clock = pygame.time.Clock()
 background = pygame.Surface(size)
@@ -286,9 +394,11 @@ mute_unmute_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_s
 stream_type_button_hitbox = pygame.Rect(0, 0, size[0]*controls_size*2*stream_type_button_scale, size[0]*controls_size*stream_type_button_scale)
 open_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_size)
 slider_hitbox = pygame.Rect(0, 0, 0, 0)
+error_hitbox = pygame.Rect(error_pos[0]*size[0], error_pos[1]*size[1], (1-error_pos[0])*size[0], (1-error_pos[0])*size[0]*error_relative_height)
 mute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "mute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 unmute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "unmute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 open_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "open.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
+error_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "error.png")), ((1-error_pos[0])*size[0]*error_relative_height*error_icon_scale, (1-error_pos[0])*size[0]*error_relative_height*error_icon_scale))
 window_icon = pygame.image.load(os.path.join(working_dir, "data", "icon.ico"))
 pygame.display.set_icon(window_icon)
 image_url = ""
@@ -298,9 +408,13 @@ running = True
 player = None
 noMenu = False
 slider_selected = False
+error = None
+data_loaded = False
+data: StationResponse = fallbackData
 
 reload_cooldown_until = time.time() + 5
 reload_data()
+
 if playing:
     play_stream()
 
@@ -312,6 +426,11 @@ while running:
             noMenu = not noMenu
         elif noMenu and event.type == pygame.MOUSEBUTTONDOWN:
             noMenu = False
+        elif error and event.type == pygame.MOUSEBUTTONDOWN and error_hitbox.collidepoint(event.pos):
+            error = None
+            loading = True
+            reload_cooldown_until = time.time() + 5
+            threading.Thread(target=reload_data).start()
         elif not noMenu:
             if (event.type == pygame.MOUSEBUTTONDOWN and mute_unmute_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE):
                 playing = not playing
@@ -340,27 +459,31 @@ while running:
                     play_stream()
 
     mouse_pos = pygame.mouse.get_pos()
-    if (mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos)) and not noMenu:
+    if (mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos) or (error and error_hitbox.collidepoint(mouse_pos))) and not noMenu:
         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
     else:
         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
     
-    if data["playing_next"]["played_at"]+1 < time.time() and not loading and reload_cooldown_until < time.time():
+    if data["playing_next"]["played_at"]+1 < time.time() and not loading and reload_cooldown_until < time.time() and not error:
         loading = True
         reload_cooldown_until = time.time() + 5
         threading.Thread(target=reload_data).start()
-    if refresh_bg:
-        refresh_bg = False
-        draw_bg(data)
-        pygame.display.set_caption(f"{data["station"]["name"]} - {data["now_playing"]["song"]["title"]}")
+
+    if data_loaded:
+        if refresh_bg:
+            refresh_bg = False
+            draw_bg(data)
+            pygame.display.set_caption(f"{data["station"]["name"]} - {data["now_playing"]["song"]["title"]}")
     
-    if noMenu:
-        screen.fill((0, 0, 0))
-        screen.blit(scaled_image, (0, 0))
-    else:
-        screen.blit(background, (0, 0))
-        screen.blit(draw_row_1(), row_1_rect)
-        screen.blit(draw_row_2(), row_2_rect)
+        if noMenu:
+            screen.fill((0, 0, 0))
+            screen.blit(scaled_image, (0, 0))
+        else:
+            screen.blit(background, (0, 0))
+            screen.blit(draw_row_1(), row_1_rect)
+            screen.blit(draw_row_2(), row_2_rect)
+    if error:
+        screen.blit(draw_error(), error_hitbox)
 
     clock.tick(fps)
     pygame.display.flip()
