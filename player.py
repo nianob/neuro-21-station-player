@@ -152,7 +152,7 @@ def fetch_image(url: str) -> BytesIO:
 # ----------------------------------------------------------------
 # Render functions
 def draw_bg(data: StationResponse) -> None:
-    global scaled_image
+    global scaled_image, blurred_image
     scaled_image = pygame.image.frombytes(image.tobytes(), image.size, image.mode).convert() # type: ignore
     blurred_image = pygame.image.frombytes(ImageEnhance.Brightness(image).enhance(darken_factor).filter(ImageFilter.GaussianBlur(blur_scale)).tobytes(), image.size, image.mode).convert() # type: ignore
     title = font.render(data["now_playing"]["song"]["title"], False, font_color)
@@ -168,12 +168,14 @@ def draw_bg(data: StationResponse) -> None:
     masksurf = pygame.Surface(size)
     masksurf.fill((0, 0, 0))
     pygame.draw.rect(masksurf, (255, 255, 255), text_rect, border_radius=round(max(size)*border_radius))
+    pygame.draw.circle(masksurf, (255, 255, 255), (size[0]-size[0]*controls_size/2, size[0]*controls_size/2), size[0]*controls_size/2)
     background.blit(masksurf, (0, 0))
     mask = pygame.mask.from_threshold(masksurf, (255, 255, 255), (127, 127, 127, 127))
     background.fill((0, 0, 0))
     mask.to_surface(background, setsurface=blurred_image, unsetsurface=scaled_image)
     background.blit(scaled_title, (size[0]/2 - scaled_title.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 - controls_size*size[0] - size[1]*content_padding*0.5))
     background.blit(scaled_author, (size[0]/2 - scaled_author.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 + scaled_title.get_height() - controls_size*size[0] - size[1]*content_padding*0.5))
+    background.blit(settings_icon, (size[0]-size[0]*controls_size/2-settings_icon.get_width()/2, size[0]*controls_size/2-settings_icon.get_height()/2))
     row_1_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 - controls_size*size[0] + size[1]*content_padding*0.5)
     row_2_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 + size[1]*content_padding*0.5)
 
@@ -367,7 +369,7 @@ fallbackData: StationResponse = {
     }
 
 # ----------------------------------------------------------------
-# Main
+# Initialize
 working_dir = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
 data_dir = os.path.join(Path.home(), "neuro_21_station_player")
 settings_file_path = os.path.join(data_dir, "settings.json")
@@ -375,11 +377,12 @@ if not os.path.exists(data_dir):
     os.mkdir(data_dir)
 if not os.path.exists(settings_file_path):
     shutil.copyfile(os.path.join(working_dir, "data", "default_settings.json"), settings_file_path)
-for filename in ["mute.png", "unmute.png", "open.png", "error.png"]:
+for filename in ["mute.png", "unmute.png", "open.png", "error.png", "settings.png"]:
     ensure_data_file(filename)
 with open(settings_file_path, "r") as f:
     with open(os.path.join(working_dir, "data", "default_settings.json"), "r") as f2:
-        loaded_vars = load_vars(json.load(f), json.load(f2))
+        default_settings = json.load(f2)
+        loaded_vars = load_vars(json.load(f), default_settings)
 with open(settings_file_path, "w") as f:
     json.dump(loaded_vars, f, indent=4, sort_keys=True)
 pygame.font.init()
@@ -400,11 +403,13 @@ mute_unmute_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_s
 stream_type_button_hitbox = pygame.Rect(0, 0, size[0]*controls_size*2*stream_type_button_scale, size[0]*controls_size*stream_type_button_scale)
 open_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_size)
 slider_hitbox = pygame.Rect(0, 0, 0, 0)
+settings_hitbox = pygame.Rect(size[0]-size[0]*controls_size, 0, size[0]*controls_size, size[0]*controls_size)
 error_hitbox = pygame.Rect(error_pos[0]*size[0], error_pos[1]*size[1], (1-error_pos[0])*size[0], (1-error_pos[0])*size[0]*error_relative_height)
 mute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "mute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 unmute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "unmute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 open_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "open.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 error_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "error.png")), ((1-error_pos[0])*size[0]*error_relative_height*error_icon_scale, (1-error_pos[0])*size[0]*error_relative_height*error_icon_scale))
+settings_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "settings.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
 window_icon = pygame.image.load(os.path.join(working_dir, "data", "icon.ico"))
 pygame.display.set_icon(window_icon)
 image_url = ""
@@ -417,6 +422,7 @@ slider_selected = False
 error = None
 warning = None
 data_loaded = False
+settings_open = False
 data: StationResponse = fallbackData
 update_presence = False
 allow_update_presence = 0
@@ -434,63 +440,103 @@ reload_data()
 if playing:
     play_stream()
 
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
-            noMenu = not noMenu
-        elif noMenu and event.type == pygame.MOUSEBUTTONDOWN:
-            noMenu = False
-        elif error and event.type == pygame.MOUSEBUTTONDOWN and error_hitbox.collidepoint(event.pos):
-            error = None
-            loading = True
-            reload_cooldown_until = time.time() + 5
-            threading.Thread(target=reload_data).start()
-        elif warning and event.type == pygame.MOUSEBUTTONDOWN and error_hitbox.collidepoint(event.pos):
-            warning = None
-            try:
-                discord_rich_presence = pypresence.presence.Presence(discord_client_id)
-                discord_rich_presence.connect()
-                update_presence = True
-            except Exception as e:
-                discord_rich_presence = None
-                warning = f"Discord: {e.__class__.__name__}"
-            
-        elif not noMenu:
-            if (event.type == pygame.MOUSEBUTTONDOWN and mute_unmute_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE):
-                playing = not playing
-                if playing:
-                    play_stream()
-                else:
-                    stop_player()
-                update_presence = True
-            elif event.type == pygame.MOUSEBUTTONDOWN and stream_type_button_hitbox.collidepoint(event.pos):
-                if stream_type == "hls":
-                    stream_type = "mp3"
-                else:
-                    stream_type = "hls"
-                stop_player()
-                if playing:
-                    play_stream()
-            elif event.type == pygame.MOUSEBUTTONDOWN and open_hitbox.collidepoint(event.pos):
-                webbrowser.open(open_link%(data["now_playing"]["song"]["custom_fields"]["songId"]))
-            elif slider_selected and event.type == pygame.MOUSEMOTION:
-                volume = min(1, max(0, (event.pos[0]-slider_hitbox.left)/slider_hitbox.width))
-            elif event.type == pygame.MOUSEBUTTONDOWN and slider_hitbox.collidepoint(event.pos):
-                slider_selected = True
-            elif slider_selected and event.type == pygame.MOUSEBUTTONUP:
-                slider_selected = False
-                stop_player()
-                if playing:
-                    play_stream()
 
-    mouse_pos = pygame.mouse.get_pos()
-    if (mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos) or ((error or warning) and error_hitbox.collidepoint(mouse_pos))) and not noMenu:
-        pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
-    else:
-        pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+while running:
+    if not settings_open:
+        # --------------------------------
+        # Normal Screen
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
+                noMenu = not noMenu
+            elif noMenu and event.type == pygame.MOUSEBUTTONDOWN:
+                noMenu = False
+            elif error and event.type == pygame.MOUSEBUTTONDOWN and error_hitbox.collidepoint(event.pos):
+                error = None
+                loading = True
+                reload_cooldown_until = time.time() + 5
+                threading.Thread(target=reload_data).start()
+            elif warning and event.type == pygame.MOUSEBUTTONDOWN and error_hitbox.collidepoint(event.pos):
+                warning = None
+                try:
+                    discord_rich_presence = pypresence.presence.Presence(discord_client_id)
+                    discord_rich_presence.connect()
+                    update_presence = True
+                except Exception as e:
+                    discord_rich_presence = None
+                    warning = f"Discord: {e.__class__.__name__}"
+                
+            elif not noMenu:
+                if (event.type == pygame.MOUSEBUTTONDOWN and mute_unmute_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE):
+                    playing = not playing
+                    if playing:
+                        play_stream()
+                    else:
+                        stop_player()
+                    update_presence = True
+                elif event.type == pygame.MOUSEBUTTONDOWN and stream_type_button_hitbox.collidepoint(event.pos):
+                    if stream_type == "hls":
+                        stream_type = "mp3"
+                    else:
+                        stream_type = "hls"
+                    stop_player()
+                    if playing:
+                        play_stream()
+                elif event.type == pygame.MOUSEBUTTONDOWN and open_hitbox.collidepoint(event.pos):
+                    webbrowser.open(open_link%(data["now_playing"]["song"]["custom_fields"]["songId"]))
+                elif slider_selected and event.type == pygame.MOUSEMOTION:
+                    volume = min(1, max(0, (event.pos[0]-slider_hitbox.left)/slider_hitbox.width))
+                elif event.type == pygame.MOUSEBUTTONDOWN and slider_hitbox.collidepoint(event.pos):
+                    slider_selected = True
+                elif slider_selected and event.type == pygame.MOUSEBUTTONUP:
+                    slider_selected = False
+                    stop_player()
+                    if playing:
+                        play_stream()
+                elif event.type == pygame.MOUSEBUTTONDOWN and settings_hitbox.collidepoint(event.pos):
+                    settings_open = True
+
+        mouse_pos = pygame.mouse.get_pos()
+        if ((mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos) or ((error or warning) and error_hitbox.collidepoint(mouse_pos)) or settings_hitbox.collidepoint(mouse_pos))) and not noMenu:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+        else:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
     
+        if data_loaded: 
+            if noMenu:
+                screen.fill((0, 0, 0))
+                screen.blit(scaled_image, (0, 0))
+            else:
+                screen.blit(background, (0, 0))
+                screen.blit(draw_row_1(), row_1_rect)
+                screen.blit(draw_row_2(), row_2_rect)
+    else:
+        # --------------------------------
+        # Settings Screen
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif (event.type == pygame.MOUSEBUTTONDOWN and settings_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                settings_open = False
+
+        mouse_pos = pygame.mouse.get_pos()
+        if settings_hitbox.collidepoint(mouse_pos) and not noMenu:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+        else:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+
+        screen.blit(blurred_image, (0, 0))
+        screen.blit(settings_icon, (size[0]-size[0]*controls_size/2-settings_icon.get_width()/2, size[0]*controls_size/2-settings_icon.get_height()/2))
+
+    # --------------------------------
+    # All Screens
+    if data_loaded:
+        if refresh_bg:
+            refresh_bg = False
+            draw_bg(data)
+            pygame.display.set_caption(f"{data["station"]["name"]} - {data["now_playing"]["song"]["title"]}")
+
     if data["playing_next"]["played_at"]+1 < time.time() and not loading and reload_cooldown_until < time.time() and not error:
         loading = True
         reload_cooldown_until = time.time() + 5
@@ -518,19 +564,6 @@ while running:
             allow_update_presence = time.time() + 16
             update_presence = False
 
-    if data_loaded:
-        if refresh_bg:
-            refresh_bg = False
-            draw_bg(data)
-            pygame.display.set_caption(f"{data["station"]["name"]} - {data["now_playing"]["song"]["title"]}")
-    
-        if noMenu:
-            screen.fill((0, 0, 0))
-            screen.blit(scaled_image, (0, 0))
-        else:
-            screen.blit(background, (0, 0))
-            screen.blit(draw_row_1(), row_1_rect)
-            screen.blit(draw_row_2(), row_2_rect)
     if error:
         screen.blit(draw_error(error, "Click to Reload", error_color), error_hitbox)
     elif warning:
