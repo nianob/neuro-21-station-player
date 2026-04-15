@@ -20,6 +20,7 @@ from typing import TypedDict, Optional, Literal
 # ----------------------------------------------------------------
 # Constants
 CREATE_NO_WINDOW = 0x08000000
+open_link = "https://neurokaraoke.com/song/%s"
 
 # ----------------------------------------------------------------
 # Types
@@ -274,7 +275,6 @@ progress_bar_color: tuple[int, int, int, int] = (0, 0, 0, 0)
 button_text_size: float = 0
 mono_font_name: str = ""
 timer_size: float = 0
-open_link: str = ""
 slider_size: float = 0
 slider_bar_size: float = 0
 error_color: tuple[int, int, int] = (0, 0, 0)
@@ -550,12 +550,29 @@ while running:
                     name=data["station"]["name"],
                     state=f"{data["now_playing"]["song"]["artist"]} - {data["now_playing"]["song"]["title"]}",
                     start=data["now_playing"]["played_at"],
-                    end=data["now_playing"]["played_at"]+data["now_playing"]["duration"])
+                    end=data["now_playing"]["played_at"]+data["now_playing"]["duration"],
+                    buttons=[
+                        {
+                            "label": "Open Stream",
+                            "url": data["station"]["public_player_url"]
+                        },
+                        {
+                            "label": "Open Song",
+                            "url": open_link%(data["now_playing"]["song"]["custom_fields"]["songId"])
+                        }
+                    ]
+                )
             else:
                 discord_rich_presence.update(
                     activity_type=pypresence.types.ActivityType.LISTENING,
                     name=data["station"]["name"],
-                    state="Paused"
+                    state="Paused",
+                    buttons=[
+                        {
+                            "label": "Open Stream",
+                            "url": data["station"]["public_player_url"]
+                        }
+                    ]
                 )
         except Exception as e:
             discord_rich_presence = None
