@@ -180,6 +180,7 @@ def draw_bg(data: StationResponse) -> None:
 def reload_data() -> None:
     global data, image, loading, refresh_bg, image_url, error, data_loaded, update_presence
     try:
+        old_songid = data["now_playing"]["song"]["id"]
         data = fetch_data()
         refresh_bg = True
         if not data_loaded or image_url != data["now_playing"]["song"]["art"]:
@@ -187,7 +188,7 @@ def reload_data() -> None:
             image_url = data["now_playing"]["song"]["art"]
             refresh_bg = True
         data_loaded = True
-        update_presence = True
+        update_presence = old_songid != data["now_playing"]["song"]["id"]
     except requests.RequestException as e:
         error = e.__class__.__name__
     finally:
@@ -233,14 +234,14 @@ def draw_row_2() -> pygame.Surface:
     slider_hitbox.top += row_2_rect.top
     return surface
 
-def draw_error() -> pygame.Surface:
+def draw_error(message: str, message2: str, color: tuple[int, int, int]) -> pygame.Surface:
     surface = pygame.Surface(error_hitbox.size, pygame.SRCALPHA)
-    pygame.draw.rect(surface, error_color, surface.get_rect(), border_top_left_radius=int(max(size)*border_radius), border_bottom_left_radius=int(max(size)*border_radius))
+    pygame.draw.rect(surface, color, surface.get_rect(), border_top_left_radius=int(max(size)*border_radius), border_bottom_left_radius=int(max(size)*border_radius))
     surface.blit(error_icon, (content_padding*size[0], surface.get_height()/2-error_icon.get_height()/2))
-    text = font.render(error, False, font_color)
+    text = font.render(message, False, font_color)
     scaled_text = pygame.transform.scale_by(text, (surface.get_width()-2*content_padding*size[0]-error_icon.get_width())/text.get_width())
     surface.blit(scaled_text, (2*content_padding*size[0]+error_icon.get_width(), content_padding*size[1]))
-    reload_text = font.render("Click to Reload", False, font_color)
+    reload_text = font.render(message2, False, font_color)
     scaled_reload_text = pygame.transform.scale_by(reload_text, (surface.get_width()-2*content_padding*size[0]-error_icon.get_width())/reload_text.get_width())
     surface.blit(scaled_reload_text, (2*content_padding*size[0]+error_icon.get_width(), surface.get_height()-content_padding*size[1]-scaled_reload_text.get_height()))
     return surface
@@ -281,6 +282,7 @@ error_icon_scale: float = 0
 reload_cooldown: int = 0
 enable_discord_rich_presence: bool = False
 discord_client_id: int = 0
+warning_color: tuple[int, int, int] = (0, 0, 0)
 
 # ----------------------------------------------------------------
 # Fallback Station Data
@@ -413,13 +415,18 @@ player = None
 noMenu = False
 slider_selected = False
 error = None
+warning = None
 data_loaded = False
 data: StationResponse = fallbackData
 update_presence = False
 allow_update_presence = 0
 discord_rich_presence = pypresence.presence.Presence(discord_client_id) if enable_discord_rich_presence else None
 if enable_discord_rich_presence:
-    discord_rich_presence.connect()
+    try:
+        discord_rich_presence.connect()
+    except Exception as e:
+        discord_rich_presence = None
+        warning = f"Discord: {e.__class__.__name__}"
 
 reload_cooldown_until = time.time() + 5
 reload_data()
@@ -440,6 +447,16 @@ while running:
             loading = True
             reload_cooldown_until = time.time() + 5
             threading.Thread(target=reload_data).start()
+        elif warning and event.type == pygame.MOUSEBUTTONDOWN and error_hitbox.collidepoint(event.pos):
+            warning = None
+            try:
+                discord_rich_presence = pypresence.presence.Presence(discord_client_id)
+                discord_rich_presence.connect()
+                update_presence = True
+            except Exception as e:
+                discord_rich_presence = None
+                warning = f"Discord: {e.__class__.__name__}"
+            
         elif not noMenu:
             if (event.type == pygame.MOUSEBUTTONDOWN and mute_unmute_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE):
                 playing = not playing
@@ -469,7 +486,7 @@ while running:
                     play_stream()
 
     mouse_pos = pygame.mouse.get_pos()
-    if (mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos) or (error and error_hitbox.collidepoint(mouse_pos))) and not noMenu:
+    if (mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos) or ((error or warning) and error_hitbox.collidepoint(mouse_pos))) and not noMenu:
         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
     else:
         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
@@ -480,21 +497,26 @@ while running:
         threading.Thread(target=reload_data).start()
 
     if discord_rich_presence and update_presence and time.time() > allow_update_presence:
-        if playing:
-            discord_rich_presence.update(
-                activity_type=pypresence.types.ActivityType.LISTENING,
-                name=data["station"]["name"],
-                state=f"{data["now_playing"]["song"]["artist"]} - {data["now_playing"]["song"]["title"]}",
-                start=data["now_playing"]["played_at"],
-                end=data["now_playing"]["played_at"]+data["now_playing"]["duration"])
-        else:
-            discord_rich_presence.update(
-                activity_type=pypresence.types.ActivityType.LISTENING,
-                name=data["station"]["name"],
-                state="Paused"
-            )
-        allow_update_presence = time.time() + 16
-        update_presence = False
+        try:
+            if playing:
+                discord_rich_presence.update(
+                    activity_type=pypresence.types.ActivityType.LISTENING,
+                    name=data["station"]["name"],
+                    state=f"{data["now_playing"]["song"]["artist"]} - {data["now_playing"]["song"]["title"]}",
+                    start=data["now_playing"]["played_at"],
+                    end=data["now_playing"]["played_at"]+data["now_playing"]["duration"])
+            else:
+                discord_rich_presence.update(
+                    activity_type=pypresence.types.ActivityType.LISTENING,
+                    name=data["station"]["name"],
+                    state="Paused"
+                )
+        except Exception as e:
+            discord_rich_presence = None
+            warning = f"Discord: {e.__class__.__name__}"
+        finally:
+            allow_update_presence = time.time() + 16
+            update_presence = False
 
     if data_loaded:
         if refresh_bg:
@@ -510,10 +532,14 @@ while running:
             screen.blit(draw_row_1(), row_1_rect)
             screen.blit(draw_row_2(), row_2_rect)
     if error:
-        screen.blit(draw_error(), error_hitbox)
+        screen.blit(draw_error(error, "Click to Reload", error_color), error_hitbox)
+    elif warning:
+        screen.blit(draw_error(warning, "Click to Reload", warning_color), error_hitbox)
 
     clock.tick(fps)
     pygame.display.flip()
 
 pygame.quit()
 stop_player()
+if discord_rich_presence:
+    discord_rich_presence.close()

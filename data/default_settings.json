@@ -32,5 +32,6 @@
     "error_icon_scale": 0.5,
     "reload_cooldown": 5,
     "enable_discord_rich_presence": false,
-    "discord_client_id": 1493676075128193174
+    "discord_client_id": 1493676075128193174,
+    "warning_color": [189, 130, 2]
 }
