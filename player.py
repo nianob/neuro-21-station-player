@@ -3,6 +3,7 @@
 import json
 import os
 import pygame
+import pygame_widgets
 import pypresence
 import requests
 import shutil
@@ -12,10 +13,11 @@ import threading
 import time
 import webbrowser
 
+from pygame_widgets import widget, dropdown
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance
 from io import BytesIO
-from typing import TypedDict, Optional, Literal
+from typing import TypedDict, Optional, Literal, Any, get_origin
 
 # ----------------------------------------------------------------
 # Constants
@@ -107,6 +109,16 @@ class StationResponse(TypedDict):
     song_history: list[StationSong]
     is_online: bool
     cache: str
+
+# ----------------------------------------------------------------
+# Custom Annotations
+
+type percent = float # from 0 to 1
+type byte = int # from 0 to 255
+type color = tuple[byte, byte, byte] # A pygame color
+type colora = tuple[byte, byte, byte, byte] # A pygame color with alpha
+type percent_vector = tuple[percent, percent] # A Vecor defining a size or position
+type vector = tuple[int, int] # A Vecor defining a size or position
 
 # ----------------------------------------------------------------
 # General Functions
@@ -250,41 +262,63 @@ def draw_error(message: str, message2: str, color: tuple[int, int, int]) -> pyga
     return surface
 
 # ----------------------------------------------------------------
+# Widget Stuff
+def setup_widgets(settings: dict[str, Any]) -> dict[str, widget.WidgetBase]:
+    widgets: dict[str, widget.WidgetBase] = {}
+    for name, current in settings.items():
+        if name not in __annotations__:
+            continue
+        elif __annotations__[name] == percent:pass
+        elif __annotations__[name] == byte:pass
+        elif __annotations__[name] == color:pass
+        elif __annotations__[name] == colora:pass
+        elif __annotations__[name] == percent_vector:pass
+        elif __annotations__[name] == vector:pass
+        elif __annotations__[name] == float:pass
+        elif __annotations__[name] == int:pass
+        elif __annotations__[name] == str:pass
+        elif __annotations__[name] == bool:pass
+        elif get_origin(__annotations__[name]) is Literal:pass
+        else:print("Unknown: ", __annotations__[name])
+    
+    return widgets
+
+# ----------------------------------------------------------------
 # Settings, are all overwritten by settingsfike, so everything is 0 here
-size: tuple[int, int] = (0, 0)
+size: vector = (0, 0)
 fps: int = 0
-content_width: float = 0
-content_padding: float = 0
-border_radius: float = 0
-author_scale: float = 0
+content_width: percent = 0
+content_padding: percent = 0
+border_radius: percent = 0
+author_scale: percent = 0
 blur_scale: int = 0
 darken_factor: float = 0
-controls_size: float = 0
-button_color: tuple[int, int, int, int] = (0, 0, 0, 0)
-button_icon_size: float = 0
+controls_size: percent = 0
+button_color: colora = (0, 0, 0, 0)
+button_icon_size: percent = 0
 font_quality: int = 0
-font_color: tuple[int, int, int] = (0, 0, 0)
-button_font_color: tuple[int, int, int] = (0, 0, 0)
-volume: float = 0
+font_color: color = (0, 0, 0)
+button_font_color: color = (0, 0, 0)
+volume: percent = 0
 stream_type: Literal["mp3", "hls"] = "mp3"
-stream_type_button_scale: float = 0
+stream_type_button_scale: percent = 0
 playing: bool = False
 data_url: str = ""
-progress_bar_size: tuple[float, float] = (0, 0)
-progress_bar_color: tuple[int, int, int, int] = (0, 0, 0, 0)
-button_text_size: float = 0
+progress_bar_size: percent_vector = (0, 0)
+progress_bar_color: colora = (0, 0, 0, 0)
+button_text_size: percent = 0
 mono_font_name: str = ""
-timer_size: float = 0
-slider_size: float = 0
-slider_bar_size: float = 0
-error_color: tuple[int, int, int] = (0, 0, 0)
-error_pos: tuple[float, float] = (0, 0)
-error_relative_height: float = 0
-error_icon_scale: float = 0
+timer_size: percent = 0
+slider_size: percent = 0
+slider_bar_size: percent = 0
+error_color: color = (0, 0, 0)
+error_pos: percent_vector = (0, 0)
+error_relative_height: percent = 0
+error_icon_scale: percent = 0
 reload_cooldown: int = 0
 enable_discord_rich_presence: bool = False
 discord_client_id: int = 0
-warning_color: tuple[int, int, int] = (0, 0, 0)
+warning_color: color = (0, 0, 0)
 
 # ----------------------------------------------------------------
 # Fallback Station Data
@@ -403,6 +437,7 @@ mute_unmute_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_s
 stream_type_button_hitbox = pygame.Rect(0, 0, size[0]*controls_size*2*stream_type_button_scale, size[0]*controls_size*stream_type_button_scale)
 open_hitbox = pygame.Rect(0, 0, size[0]*controls_size, size[0]*controls_size)
 slider_hitbox = pygame.Rect(0, 0, 0, 0)
+open_settings_hitbox = pygame.Rect(0, 0, 0, 0)
 settings_hitbox = pygame.Rect(size[0]-size[0]*controls_size, 0, size[0]*controls_size, size[0]*controls_size)
 error_hitbox = pygame.Rect(error_pos[0]*size[0], error_pos[1]*size[1], (1-error_pos[0])*size[0], (1-error_pos[0])*size[0]*error_relative_height)
 mute_icon = pygame.transform.smoothscale(pygame.image.load(os.path.join(data_dir, "mute.png")), (size[0]*controls_size*button_icon_size, size[0]*controls_size*button_icon_size))
@@ -433,6 +468,7 @@ if enable_discord_rich_presence:
     except Exception as e:
         discord_rich_presence = None
         warning = f"Discord: {e.__class__.__name__}"
+widgets = setup_widgets(loaded_vars)
 
 reload_cooldown_until = time.time() + 5
 reload_data()
@@ -484,7 +520,8 @@ while running:
                     if playing:
                         play_stream()
                 elif event.type == pygame.MOUSEBUTTONDOWN and open_hitbox.collidepoint(event.pos):
-                    webbrowser.open(open_link%(data["now_playing"]["song"]["custom_fields"]["songId"]))
+                    if data["now_playing"]["song"]["custom_fields"]["songId"]:
+                        webbrowser.open(open_link%(data["now_playing"]["song"]["custom_fields"]["songId"]))
                 elif slider_selected and event.type == pygame.MOUSEMOTION:
                     volume = min(1, max(0, (event.pos[0]-slider_hitbox.left)/slider_hitbox.width))
                 elif event.type == pygame.MOUSEBUTTONDOWN and slider_hitbox.collidepoint(event.pos):
@@ -498,8 +535,13 @@ while running:
                     settings_open = True
 
         mouse_pos = pygame.mouse.get_pos()
-        if ((mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or open_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos) or ((error or warning) and error_hitbox.collidepoint(mouse_pos)) or settings_hitbox.collidepoint(mouse_pos))) and not noMenu:
+        if ((mute_unmute_hitbox.collidepoint(mouse_pos) or stream_type_button_hitbox.collidepoint(mouse_pos) or slider_hitbox.collidepoint(mouse_pos) or ((error or warning) and error_hitbox.collidepoint(mouse_pos)) or settings_hitbox.collidepoint(mouse_pos))) and not noMenu:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+        elif open_hitbox.collidepoint(mouse_pos):
+            if data["now_playing"]["song"]["custom_fields"]["songId"]:
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+            else:
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_NO)
         else:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
     
@@ -514,20 +556,37 @@ while running:
     else:
         # --------------------------------
         # Settings Screen
-        for event in pygame.event.get():
+        events = pygame.event.get()
+        for event in events:
             if event.type == pygame.QUIT:
                 running = False
             elif (event.type == pygame.MOUSEBUTTONDOWN and settings_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 settings_open = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and open_settings_hitbox.collidepoint(event.pos):
+                subprocess.Popen(["explorer", data_dir])
 
         mouse_pos = pygame.mouse.get_pos()
-        if settings_hitbox.collidepoint(mouse_pos) and not noMenu:
+        if (settings_hitbox.collidepoint(mouse_pos) or open_settings_hitbox.collidepoint(mouse_pos)) and not noMenu:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
         else:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
 
         screen.blit(blurred_image, (0, 0))
         screen.blit(settings_icon, (size[0]-size[0]*controls_size/2-settings_icon.get_width()/2, size[0]*controls_size/2-settings_icon.get_height()/2))
+        wip_text = font.render("This feature is not finished", False, font_color)
+        info_text = font.render("Please edit the settings manually", False, font_color)
+        settings_text_scale = screen.get_width()/info_text.get_width()/2
+        scaled_wip_text = pygame.transform.scale_by(wip_text, settings_text_scale)
+        scaled_info_text = pygame.transform.scale_by(info_text, settings_text_scale)
+        screen.blit(scaled_wip_text, (screen.get_width()/2-scaled_wip_text.get_width()/2, 0))
+        screen.blit(scaled_info_text, (screen.get_width()/2-scaled_info_text.get_width()/2, screen.get_height()*content_padding))
+        
+        open_text = font.render("Open", False, button_font_color, button_color)
+        scaled_open_text = pygame.transform.scale_by(open_text, settings_text_scale)
+        open_settings_hitbox.top = int(screen.get_height()*content_padding*2+scaled_info_text.get_height())
+        open_settings_hitbox.left = int(screen.get_width()/2-scaled_open_text.get_width()/2)
+        open_settings_hitbox.size = scaled_open_text.get_size()
+        screen.blit(scaled_open_text, open_settings_hitbox)
 
     # --------------------------------
     # All Screens
@@ -545,22 +604,24 @@ while running:
     if discord_rich_presence and update_presence and time.time() > allow_update_presence:
         try:
             if playing:
+                buttons = [
+                    {
+                        "label": "Open Stream",
+                        "url": data["station"]["public_player_url"]
+                    }
+                ]
+                if data["now_playing"]["song"]["custom_fields"]["songId"]:
+                    buttons.append({
+                        "label": "Open Song",
+                        "url": open_link%(data["now_playing"]["song"]["custom_fields"]["songId"])
+                    })
                 discord_rich_presence.update(
                     activity_type=pypresence.types.ActivityType.LISTENING,
                     name=data["station"]["name"],
                     state=f"{data["now_playing"]["song"]["artist"]} - {data["now_playing"]["song"]["title"]}",
                     start=data["now_playing"]["played_at"],
                     end=data["now_playing"]["played_at"]+data["now_playing"]["duration"],
-                    buttons=[
-                        {
-                            "label": "Open Stream",
-                            "url": data["station"]["public_player_url"]
-                        },
-                        {
-                            "label": "Open Song",
-                            "url": open_link%(data["now_playing"]["song"]["custom_fields"]["songId"])
-                        }
-                    ]
+                    buttons=buttons
                 )
             else:
                 discord_rich_presence.update(
@@ -592,4 +653,7 @@ while running:
 pygame.quit()
 stop_player()
 if discord_rich_presence:
-    discord_rich_presence.close()
+    try:
+        discord_rich_presence.clear()
+    finally:
+        discord_rich_presence.close()
