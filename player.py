@@ -13,7 +13,6 @@ import threading
 import time
 import webbrowser
 
-from pygame_widgets import widget, dropdown
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance
 from io import BytesIO
@@ -192,13 +191,26 @@ def draw_bg(data: StationResponse) -> None:
     row_1_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 - controls_size*size[0] + size[1]*content_padding*0.5)
     row_2_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 + size[1]*content_padding*0.5)
 
+def draw_bg_low_resources(data: StationResponse):
+    title = font.render(data["now_playing"]["song"]["title"], False, font_color)
+    author = font.render(data["now_playing"]["song"]["artist"], False, font_color)
+    title_scale_factor = size[0]/max(title.get_width(), author.get_width()*author_scale)*content_width
+    scaled_title = pygame.transform.scale_by(title, title_scale_factor)
+    scaled_author = pygame.transform.scale_by(author, title_scale_factor*author_scale)
+    background.fill(background_color)
+    background.blit(scaled_title, (size[0]/2 - scaled_title.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 - controls_size*size[0] - size[1]*content_padding*0.5))
+    background.blit(scaled_author, (size[0]/2 - scaled_author.get_width()/2, size[1]/2 - (scaled_title.get_height()+scaled_author.get_height())/2 + scaled_title.get_height() - controls_size*size[0] - size[1]*content_padding*0.5))
+    background.blit(settings_icon, (size[0]-size[0]*controls_size/2-settings_icon.get_width()/2, size[0]*controls_size/2-settings_icon.get_height()/2))
+    row_1_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 - controls_size*size[0] + size[1]*content_padding*0.5)
+    row_2_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 + size[1]*content_padding*0.5)
+
 def reload_data() -> None:
     global data, image, loading, refresh_bg, image_url, error, data_loaded, update_presence
     try:
         old_songid = data["now_playing"]["song"]["id"]
         data = fetch_data()
         refresh_bg = True
-        if not data_loaded or image_url != data["now_playing"]["song"]["art"]:
+        if not ultra_low_resource_mode and (not data_loaded or image_url != data["now_playing"]["song"]["art"]):
             image = Image.open(fetch_image(data["now_playing"]["song"]["art"])).resize(size)
             image_url = data["now_playing"]["song"]["art"]
             refresh_bg = True
@@ -263,25 +275,25 @@ def draw_error(message: str, message2: str, color: tuple[int, int, int]) -> pyga
 
 # ----------------------------------------------------------------
 # Widget Stuff
-def setup_widgets(settings: dict[str, Any]) -> dict[str, widget.WidgetBase]:
-    widgets: dict[str, widget.WidgetBase] = {}
-    for name, current in settings.items():
-        if name not in __annotations__:
-            continue
-        elif __annotations__[name] == percent:pass
-        elif __annotations__[name] == byte:pass
-        elif __annotations__[name] == color:pass
-        elif __annotations__[name] == colora:pass
-        elif __annotations__[name] == percent_vector:pass
-        elif __annotations__[name] == vector:pass
-        elif __annotations__[name] == float:pass
-        elif __annotations__[name] == int:pass
-        elif __annotations__[name] == str:pass
-        elif __annotations__[name] == bool:pass
-        elif get_origin(__annotations__[name]) is Literal:pass
-        else:print("Unknown: ", __annotations__[name])
+# def setup_widgets(settings: dict[str, Any]) -> dict[str, widget.WidgetBase]:
+#     widgets: dict[str, widget.WidgetBase] = {}
+#     for name, current in settings.items():
+#         if name not in __annotations__:
+#             continue
+#         elif __annotations__[name] == percent:pass
+#         elif __annotations__[name] == byte:pass
+#         elif __annotations__[name] == color:pass
+#         elif __annotations__[name] == colora:pass
+#         elif __annotations__[name] == percent_vector:pass
+#         elif __annotations__[name] == vector:pass
+#         elif __annotations__[name] == float:pass
+#         elif __annotations__[name] == int:pass
+#         elif __annotations__[name] == str:pass
+#         elif __annotations__[name] == bool:pass
+#         elif get_origin(__annotations__[name]) is Literal:pass
+#         else:print("Unknown: ", __annotations__[name])
     
-    return widgets
+#     return widgets
 
 # ----------------------------------------------------------------
 # Settings, are all overwritten by settingsfike, so everything is 0 here
@@ -319,6 +331,8 @@ reload_cooldown: int = 0
 enable_discord_rich_presence: bool = False
 discord_client_id: int = 0
 warning_color: color = (0, 0, 0)
+ultra_low_resource_mode: bool = False
+background_color: color = (0, 0, 0)
 
 # ----------------------------------------------------------------
 # Fallback Station Data
@@ -468,7 +482,7 @@ if enable_discord_rich_presence:
     except Exception as e:
         discord_rich_presence = None
         warning = f"Discord: {e.__class__.__name__}"
-widgets = setup_widgets(loaded_vars)
+# widgets = setup_widgets(loaded_vars)
 
 reload_cooldown_until = time.time() + 5
 reload_data()
@@ -571,7 +585,10 @@ while running:
         else:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
 
-        screen.blit(blurred_image, (0, 0))
+        if ultra_low_resource_mode:
+            screen.fill(background_color)
+        else:
+            screen.blit(blurred_image, (0, 0))
         screen.blit(settings_icon, (size[0]-size[0]*controls_size/2-settings_icon.get_width()/2, size[0]*controls_size/2-settings_icon.get_height()/2))
         wip_text = font.render("This feature is not finished", False, font_color)
         info_text = font.render("Please edit the settings manually", False, font_color)
@@ -593,7 +610,10 @@ while running:
     if data_loaded:
         if refresh_bg:
             refresh_bg = False
-            draw_bg(data)
+            if ultra_low_resource_mode:
+                draw_bg_low_resources(data)
+            else:
+                draw_bg(data)
             pygame.display.set_caption(f"{data["station"]["name"]} - {data["now_playing"]["song"]["title"]}")
 
     if data["playing_next"]["played_at"]+1 < time.time() and not loading and reload_cooldown_until < time.time() and not error:
