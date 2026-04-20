@@ -13,6 +13,10 @@ import threading
 import time
 import webbrowser
 
+from pygame_widgets import widget
+from pygame_widgets.toggle import Toggle
+from pygame_widgets.textbox import TextBox
+from pygame_widgets.slider import Slider
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance
 from io import BytesIO
@@ -275,25 +279,74 @@ def draw_error(message: str, message2: str, color: tuple[int, int, int]) -> pyga
 
 # ----------------------------------------------------------------
 # Widget Stuff
-# def setup_widgets(settings: dict[str, Any]) -> dict[str, widget.WidgetBase]:
-#     widgets: dict[str, widget.WidgetBase] = {}
-#     for name, current in settings.items():
-#         if name not in __annotations__:
-#             continue
-#         elif __annotations__[name] == percent:pass
-#         elif __annotations__[name] == byte:pass
-#         elif __annotations__[name] == color:pass
-#         elif __annotations__[name] == colora:pass
-#         elif __annotations__[name] == percent_vector:pass
-#         elif __annotations__[name] == vector:pass
-#         elif __annotations__[name] == float:pass
-#         elif __annotations__[name] == int:pass
-#         elif __annotations__[name] == str:pass
-#         elif __annotations__[name] == bool:pass
-#         elif get_origin(__annotations__[name]) is Literal:pass
-#         else:print("Unknown: ", __annotations__[name])
+def get_font_height(target_height):
+    size = 1
+    while True:
+        font = pygame.font.SysFont("calibri", size)
+        text_surface = font.render("Hg", True, (255, 255, 255))
+        height = text_surface.get_height()
+        if height >= target_height:
+            return size-1
+        size += 1
+
+def setup_widgets(settings: dict[str, Any]) -> tuple[pygame.Surface, dict[str, widget.WidgetBase]]:
+    mg = pygame.Surface(size, pygame.SRCALPHA)
+    widgets: dict[str, widget.WidgetBase] = {}
+
+    wip_text = font.render("This feature is not finished", False, font_color)
+    info_text = font.render("Please edit the remaining settings manually", False, font_color)
+    settings_text_scale = mg.get_width()/info_text.get_width()/2
+    scaled_wip_text = pygame.transform.scale_by(wip_text, settings_text_scale)
+    scaled_info_text = pygame.transform.scale_by(info_text, settings_text_scale)
+    mg.blit(scaled_wip_text, (mg.get_width()/2-scaled_wip_text.get_width()/2, 0))
+    mg.blit(scaled_info_text, (mg.get_width()/2-scaled_info_text.get_width()/2, scaled_wip_text.get_height()))
+
+    open_text = font.render("Open", False, button_font_color, button_color)
+    scaled_open_text = pygame.transform.scale_by(open_text, settings_text_scale)
+    open_settings_hitbox.top = int(scaled_wip_text.get_height()+scaled_info_text.get_height()+mg.get_height()*content_padding/2)
+    open_settings_hitbox.left = int(mg.get_width()/2-scaled_open_text.get_width()/2)
+    open_settings_hitbox.size = scaled_open_text.get_size()
+    mg.blit(scaled_open_text, open_settings_hitbox)
+
+    textbox_font_size = get_font_height(scaled_info_text.get_height()-4)
+
+    y = int(scaled_wip_text.get_height()+scaled_info_text.get_height()+scaled_open_text.get_height()+mg.get_height()*content_padding*2)
+    x = int(mg.get_width()*(0.5+content_padding/2))
+
+    for name, current in settings.items():
+        if name not in __annotations__:
+            continue
+        elif __annotations__[name] == percent:
+            continue
+            # Currently disabled due to way too many options
+            widgets[name] = Slider(screen, x, y, int(mg.get_width()*(0.5-content_padding*2)), scaled_info_text.get_height(), max=1, step=0.01, initial=current)
+        elif __annotations__[name] == byte:continue
+        elif __annotations__[name] == color:continue
+        elif __annotations__[name] == colora:continue
+        elif __annotations__[name] == percent_vector:continue
+        elif __annotations__[name] == vector:continue
+        elif __annotations__[name] == float:continue
+        elif __annotations__[name] == int:continue
+        elif __annotations__[name] == str:
+            textbox = TextBox(screen, int(x-mg.get_width()*content_padding/2), y, int(mg.get_width()*(0.5-content_padding)), scaled_info_text.get_height(), borderThickness=1, fontSize=textbox_font_size)
+            textbox.setText(current)
+            if textbox.firstVisibleLine != 0:
+                textbox.setText("OverflowError")
+                textbox.disable()
+                textbox.textColour = error_color
+            widgets[name] = textbox
+        elif __annotations__[name] == bool:
+            widgets[name] = Toggle(screen, x, y, scaled_info_text.get_height()*2, scaled_info_text.get_height(), startOn=current)
+        elif get_origin(__annotations__[name]) is Literal:continue
+        else:
+            print("Unknown: ", __annotations__[name])
+            continue
     
-#     return widgets
+        text = pygame.transform.scale_by(font.render(name, False, font_color), settings_text_scale)
+        mg.blit(text, (mg.get_width()*(0.5-content_padding/2)-text.get_width(), y))
+        y += int(scaled_info_text.get_height() + mg.get_height()*content_padding)
+
+    return mg, widgets
 
 # ----------------------------------------------------------------
 # Settings, are all overwritten by settingsfike, so everything is 0 here
@@ -482,7 +535,7 @@ if enable_discord_rich_presence:
     except Exception as e:
         discord_rich_presence = None
         warning = f"Discord: {e.__class__.__name__}"
-# widgets = setup_widgets(loaded_vars)
+middleground, widgets = setup_widgets(loaded_vars)
 
 reload_cooldown_until = time.time() + 5
 reload_data()
@@ -589,21 +642,11 @@ while running:
             screen.fill(background_color)
         else:
             screen.blit(blurred_image, (0, 0))
+
         screen.blit(settings_icon, (size[0]-size[0]*controls_size/2-settings_icon.get_width()/2, size[0]*controls_size/2-settings_icon.get_height()/2))
-        wip_text = font.render("This feature is not finished", False, font_color)
-        info_text = font.render("Please edit the settings manually", False, font_color)
-        settings_text_scale = screen.get_width()/info_text.get_width()/2
-        scaled_wip_text = pygame.transform.scale_by(wip_text, settings_text_scale)
-        scaled_info_text = pygame.transform.scale_by(info_text, settings_text_scale)
-        screen.blit(scaled_wip_text, (screen.get_width()/2-scaled_wip_text.get_width()/2, 0))
-        screen.blit(scaled_info_text, (screen.get_width()/2-scaled_info_text.get_width()/2, screen.get_height()*content_padding))
-        
-        open_text = font.render("Open", False, button_font_color, button_color)
-        scaled_open_text = pygame.transform.scale_by(open_text, settings_text_scale)
-        open_settings_hitbox.top = int(screen.get_height()*content_padding*2+scaled_info_text.get_height())
-        open_settings_hitbox.left = int(screen.get_width()/2-scaled_open_text.get_width()/2)
-        open_settings_hitbox.size = scaled_open_text.get_size()
-        screen.blit(scaled_open_text, open_settings_hitbox)
+        screen.blit(middleground, (0, 0))
+
+        pygame_widgets.update(events)
 
     # --------------------------------
     # All Screens
@@ -677,3 +720,11 @@ if discord_rich_presence:
         discord_rich_presence.clear()
     finally:
         discord_rich_presence.close()
+for name, wid in widgets.items():
+    if isinstance(wid, Toggle):
+        loaded_vars[name] = wid.value
+    if isinstance(wid, TextBox) and wid.isEnabled():
+        loaded_vars[name] = wid.getText()
+
+with open(os.path.join(data_dir, "settings.json"), "w") as f:
+    json.dump(loaded_vars, f, indent=4)
