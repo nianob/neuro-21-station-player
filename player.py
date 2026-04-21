@@ -488,6 +488,7 @@ if enable_discord_rich_presence:
     except Exception as e:
         discord_rich_presence = None
         warning = f"Discord: {e.__class__.__name__}"
+nkh.init()
 # widgets = setup_widgets(loaded_vars)
 
 reload_cooldown_until = time.time() + 5

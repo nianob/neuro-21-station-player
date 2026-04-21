@@ -22,12 +22,8 @@ class SensitiveSettings(Settings):
         except subprocess.CalledProcessError as e:
             print(f"Failed to hide sensitive file \"{final_filename}\": {e}")
 
-sensitive_settings = SensitiveSettings(os.path.join(Path.home(), "neuro_21_station_player", ".nk_settings.json"))
-try:
-    settings = getGlobal()
-except ValueError as e:
-    if __name__ != "__main__":
-        raise e
+sensitive_settings: SensitiveSettings
+settings: Settings
 
 # --------------------------------------------------------------------------------
 # Internals
@@ -56,6 +52,14 @@ def _send_json_request(method: str, url: str) -> Any:
 # --------------------------------------------------------------------------------
 # Public Functions
 
+def init():
+    global settings, sensitive_settings
+    sensitive_settings = SensitiveSettings(os.path.join(Path.home(), "neuro_21_station_player", ".nk_settings.json"))
+    if __name__ != "__main__":
+        settings = getGlobal()
+    if not sensitive_settings.get("token"):
+        login()
+
 def login() -> None:
     """Opens a window to log in into neurokaraoke.com via discord"""
     window = webview.create_window("Login", "https://neurokaraoke.com/login?returnUrl=%2F")
@@ -73,4 +77,4 @@ def get_favourites() -> Any:
     return _send_json_request("GET", "https://api.neurokaraoke.com/api/user/favorites")
 
 if __name__ == "__main__":
-    login()
+    init()
