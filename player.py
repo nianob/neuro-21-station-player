@@ -19,8 +19,11 @@ from pygame_widgets.textbox import TextBox
 from pygame_widgets.slider import Slider
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance
+from niatools.settings import Settings
 from io import BytesIO
 from typing import TypedDict, Optional, Literal, Any, get_origin
+
+import neurokaraoke_hook as nkh
 
 # ----------------------------------------------------------------
 # Constants
@@ -220,6 +223,9 @@ def reload_data() -> None:
             refresh_bg = True
         data_loaded = True
         update_presence = old_songid != data["now_playing"]["song"]["id"]
+        song_id = data["now_playing"]["song"]["custom_fields"]["songId"]
+        if song_id and old_songid != data["now_playing"]["song"]["id"]:
+            print("Request Sent; Response: "+nkh.send_playcount(song_id))
     except requests.RequestException as e:
         error = e.__class__.__name__
     finally:
@@ -486,6 +492,7 @@ with open(settings_file_path, "r") as f:
         loaded_vars = load_vars(json.load(f), default_settings)
 with open(settings_file_path, "w") as f:
     json.dump(loaded_vars, f, indent=4, sort_keys=True)
+settings_v2 = Settings(os.path.join(data_dir, "settings_v2.json"), os.path.join(working_dir, "data", "default_settings_v2.json"), isGlobal=True)
 pygame.font.init()
 screen = pygame.display.set_mode(size)
 pygame.display.set_caption("Neuro 21 Station Player - Loading")
@@ -536,6 +543,7 @@ if enable_discord_rich_presence:
         discord_rich_presence = None
         warning = f"Discord: {e.__class__.__name__}"
 middleground, widgets = setup_widgets(loaded_vars)
+nkh.init()
 
 reload_cooldown_until = time.time() + 5
 reload_data()
