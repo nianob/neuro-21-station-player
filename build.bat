@@ -1,1 +1,1 @@
-pyinstaller -y --onefile -n "Neuro 21 Station Player2" -i "./data/icon.ico" --add-binary ffmpeg/windows:ffmpeg/windows --add-data data:data --windowed ./player.py
+pyinstaller -y --onefile -n "Neuro 21 Station Player" -i "./data/icon.ico" --add-binary ffmpeg/windows:ffmpeg/windows --add-data data:data --windowed ./player.py
