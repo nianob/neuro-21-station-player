@@ -225,7 +225,7 @@ def reload_data() -> None:
         data_loaded = True
         update_presence = old_songid != data["now_playing"]["song"]["id"]
         song_id = data["now_playing"]["song"]["custom_fields"]["songId"]
-        if enable_neurokaraoke_integration and song_id and old_songid != data["now_playing"]["song"]["id"]:
+        if enable_neurokaraoke_integration and song_id and old_songid != data["now_playing"]["song"]["id"] and playing:
             try:
                 nkh.send_playcount(song_id)
             except Exception as e:
