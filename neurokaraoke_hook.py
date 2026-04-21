@@ -1,3 +1,4 @@
+import io
 import os
 import regex
 import requests
@@ -17,10 +18,11 @@ class SensitiveSettings(Settings):
         final_filename = filename or self.filename
         if not final_filename:
             raise ValueError("Location to save the file is unknown")
-        try:
-            subprocess.run(["attrib", "+H", final_filename], check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to hide sensitive file \"{final_filename}\": {e}")
+        if os.name == "nt":
+            try:
+                subprocess.run(["attrib", "+H", final_filename], check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to hide sensitive file \"{final_filename}\": {e}")
 
 sensitive_settings: SensitiveSettings
 settings: Settings
@@ -54,7 +56,7 @@ def _send_json_request(method: str, url: str) -> Any:
 
 def init():
     global settings, sensitive_settings
-    sensitive_settings = SensitiveSettings(os.path.join(Path.home(), "neuro_21_station_player", ".nk_settings.json"))
+    sensitive_settings = SensitiveSettings(os.path.join(Path.home(), "neuro_21_station_player", ".nk_settings.json"), io.StringIO("{}"))
     if __name__ != "__main__":
         settings = getGlobal()
     if not sensitive_settings.get("token"):
