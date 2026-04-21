@@ -17,11 +17,12 @@ from pygame_widgets import widget
 from pygame_widgets.toggle import Toggle
 from pygame_widgets.textbox import TextBox
 from pygame_widgets.slider import Slider
+from pygame_widgets.dropdown import Dropdown
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageEnhance
 from niatools.settings import Settings
 from io import BytesIO
-from typing import TypedDict, Optional, Literal, Any, get_origin
+from typing import TypedDict, Optional, Literal, Any, get_origin, get_args
 
 import neurokaraoke_hook as nkh
 
@@ -212,7 +213,7 @@ def draw_bg_low_resources(data: StationResponse):
     row_2_rect.top = int(size[1]//2 + (scaled_title.get_height()+scaled_author.get_height())//2 + size[1]*content_padding*0.5)
 
 def reload_data() -> None:
-    global data, image, loading, refresh_bg, image_url, error, data_loaded, update_presence
+    global data, image, loading, refresh_bg, image_url, error, data_loaded, update_presence, warning, warning_type
     try:
         old_songid = data["now_playing"]["song"]["id"]
         data = fetch_data()
@@ -224,8 +225,12 @@ def reload_data() -> None:
         data_loaded = True
         update_presence = old_songid != data["now_playing"]["song"]["id"]
         song_id = data["now_playing"]["song"]["custom_fields"]["songId"]
-        if song_id and old_songid != data["now_playing"]["song"]["id"]:
-            print("Request Sent; Response: "+nkh.send_playcount(song_id))
+        if enable_neurokaraoke_integration and song_id and old_songid != data["now_playing"]["song"]["id"]:
+            try:
+                nkh.send_playcount(song_id)
+            except Exception as e:
+                warning_type = "NKH"
+                warning = e
     except requests.RequestException as e:
         error = e.__class__.__name__
     finally:
@@ -301,7 +306,7 @@ def setup_widgets(settings: dict[str, Any]) -> tuple[pygame.Surface, dict[str, w
 
     wip_text = font.render("This feature is not finished", False, font_color)
     info_text = font.render("Please edit the remaining settings manually", False, font_color)
-    settings_text_scale = mg.get_width()/info_text.get_width()/2
+    settings_text_scale = mg.get_width()/info_text.get_width()*0.6
     scaled_wip_text = pygame.transform.scale_by(wip_text, settings_text_scale)
     scaled_info_text = pygame.transform.scale_by(info_text, settings_text_scale)
     mg.blit(scaled_wip_text, (mg.get_width()/2-scaled_wip_text.get_width()/2, 0))
@@ -336,6 +341,7 @@ def setup_widgets(settings: dict[str, Any]) -> tuple[pygame.Surface, dict[str, w
         elif __annotations__[name] == str:
             textbox = TextBox(screen, int(x-mg.get_width()*content_padding/2), y, int(mg.get_width()*(0.5-content_padding)), scaled_info_text.get_height(), borderThickness=1, fontSize=textbox_font_size)
             textbox.setText(current)
+            textbox.maxVisibleLines = 1
             if textbox.firstVisibleLine != 0:
                 textbox.setText("OverflowError")
                 textbox.disable()
@@ -343,7 +349,8 @@ def setup_widgets(settings: dict[str, Any]) -> tuple[pygame.Surface, dict[str, w
             widgets[name] = textbox
         elif __annotations__[name] == bool:
             widgets[name] = Toggle(screen, x, y, scaled_info_text.get_height()*2, scaled_info_text.get_height(), startOn=current)
-        elif get_origin(__annotations__[name]) is Literal:continue
+        elif get_origin(__annotations__[name]) is Literal:
+            widgets[name] = Dropdown(screen, x-mg.get_width()*content_padding/2, y, int(mg.get_width()*(0.5-content_padding)), scaled_info_text.get_height(), current, get_args(__annotations__[name]), fontSize=textbox_font_size)
         else:
             print("Unknown: ", __annotations__[name])
             continue
@@ -392,6 +399,8 @@ discord_client_id: int = 0
 warning_color: color = (0, 0, 0)
 ultra_low_resource_mode: bool = False
 background_color: color = (0, 0, 0)
+enable_neurokaraoke_integration: bool = False
+neurokaraoke_referal_url: Literal["https://neurokaraoke.com", "https://evilkaraoke.com", "https://twinskaraoke.com"] = "https://twinskaraoke.com"
 
 # ----------------------------------------------------------------
 # Fallback Station Data
@@ -530,6 +539,7 @@ noMenu = False
 slider_selected = False
 error = None
 warning = None
+warning_type = None
 data_loaded = False
 settings_open = False
 data: StationResponse = fallbackData
@@ -541,9 +551,11 @@ if enable_discord_rich_presence:
         discord_rich_presence.connect()
     except Exception as e:
         discord_rich_presence = None
-        warning = f"Discord: {e.__class__.__name__}"
+        warning_type = "Discord"
+        warning = e
 middleground, widgets = setup_widgets(loaded_vars)
-nkh.init()
+if enable_neurokaraoke_integration:
+    nkh.init()
 
 reload_cooldown_until = time.time() + 5
 reload_data()
@@ -569,14 +581,21 @@ while running:
                 reload_cooldown_until = time.time() + 5
                 threading.Thread(target=reload_data).start()
             elif warning and event.type == pygame.MOUSEBUTTONDOWN and error_hitbox.collidepoint(event.pos):
-                warning = None
-                try:
-                    discord_rich_presence = pypresence.presence.Presence(discord_client_id)
-                    discord_rich_presence.connect()
-                    update_presence = True
-                except Exception as e:
-                    discord_rich_presence = None
-                    warning = f"Discord: {e.__class__.__name__}"
+                solved = True
+                if warning_type == "Discord":
+                    try:
+                        discord_rich_presence = pypresence.presence.Presence(discord_client_id)
+                        discord_rich_presence.connect()
+                        update_presence = True
+                    except Exception as e:
+                        discord_rich_presence = None
+                        warning_type = "Discord"
+                        warning = e
+                        solved = False
+                if solved:
+                    warning = None
+                    warning_type = None
+                
                 
             elif not noMenu:
                 if (event.type == pygame.MOUSEBUTTONDOWN and mute_unmute_hitbox.collidepoint(event.pos)) or (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE):
@@ -716,7 +735,7 @@ while running:
     if error:
         screen.blit(draw_error(error, "Click to Reload", error_color), error_hitbox)
     elif warning:
-        screen.blit(draw_error(warning, "Click to Reload", warning_color), error_hitbox)
+        screen.blit(draw_error(f"{warning_type}: {warning.__class__.__name__}", "Click to Reload", warning_color), error_hitbox)
 
     clock.tick(fps)
     pygame.display.flip()
@@ -733,6 +752,8 @@ for name, wid in widgets.items():
         loaded_vars[name] = wid.value
     if isinstance(wid, TextBox) and wid.isEnabled():
         loaded_vars[name] = wid.getText()
+    if isinstance(wid, Dropdown) and wid.chosen:
+        loaded_vars[name] = wid.chosen.text
 
 with open(os.path.join(data_dir, "settings.json"), "w") as f:
     json.dump(loaded_vars, f, indent=4)

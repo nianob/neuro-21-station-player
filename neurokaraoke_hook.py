@@ -42,12 +42,12 @@ def _webview_on_loaded(window: webview.Window) -> None:
     sensitive_settings.save()
 
 def _send_request(method: str, url: str) -> str:
-    response = requests.request(method, url, headers={"authorization": f"Bearer {sensitive_settings.get("token")}", "Referer": settings.get("referal_url")})
+    response = requests.request(method, url, headers={"authorization": f"Bearer {sensitive_settings.get("token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
     response.raise_for_status()
     return response.content.decode("UTF-8")
 
 def _send_json_request(method: str, url: str) -> Any:
-    response = requests.request(method, url, headers={"authorization": f"Bearer {sensitive_settings.get("token")}", "Referer": settings.get("referal_url")})
+    response = requests.request(method, url, headers={"authorization": f"Bearer {sensitive_settings.get("token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
     response.raise_for_status()
     return response.json()
 
