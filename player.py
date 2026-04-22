@@ -727,7 +727,8 @@ while running:
                 )
         except Exception as e:
             discord_rich_presence = None
-            warning = f"Discord: {e.__class__.__name__}"
+            warning_type = "Discord"
+            warning = e
         finally:
             allow_update_presence = time.time() + 16
             update_presence = False
