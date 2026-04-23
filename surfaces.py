@@ -21,6 +21,7 @@ class SurfaceBase(ABC):
         self.rect: pygame.Rect = rect
         self.surface: pygame.Surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
         self._subsurfaces: list[Surface] = []
+        self._parent = None
     
     def update(self) -> None:
         """Updates the surface and all subsurfaces"""
@@ -29,6 +30,7 @@ class SurfaceBase(ABC):
         for surface in self.subsurfaces:
             surface.update()
             self.surface.blit(surface.surface, surface.rect)
+        pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, self.width, self.height), 2)
     
     def render(self) -> None:...
     
@@ -36,6 +38,7 @@ class SurfaceBase(ABC):
         """Passes a function to a subsurface
         
         Args:
+            func: the function to call
             x: the x position
             y: the y position
             ...: all additional arguments are passed on
@@ -63,7 +66,7 @@ class SurfaceBase(ABC):
         moved_x = x-self.x
         moved_y = y-self.y
 
-        return self.rect.collidepoint(moved_x, moved_y)
+        return 0 <= moved_x <= self.width and 0 <= moved_y <= self.height 
     
     def handle_click(self, x: int, y: int) -> None:
         self.pass_function(lambda c, x, y: c.handle_click(x, y), x, y)
@@ -72,7 +75,6 @@ class SurfaceBase(ABC):
         passed, _ = self.pass_function(lambda c, x, y: c.set_cursor(x, y), x, y)
         if not passed:
             pygame.mouse.set_cursor(self.CURSOR)
-    
     @property
     def subsurfaces(self) -> list[Surface]:
         return self._subsurfaces
@@ -157,7 +159,7 @@ class Surface(SurfaceBase):
     
     @property
     def y(self) -> int:
-        return self.parent.y - self.rect.y if self.parent else self.rect.y
+        return self.parent.y + self.rect.y if self.parent else self.rect.y
     
     @y.setter
     def y(self, value: int):
@@ -302,12 +304,13 @@ class Text(Surface):
 
 class ButtonBase(Surface):
     CURSOR = pygame.SYSTEM_CURSOR_HAND
+    CURSOR_DISABLED = pygame.SYSTEM_CURSOR_NO
     SUBSURFACE_SCALE = 1
 
     def __init__(self, rect: pygame.Rect, parent: Optional[SurfaceBase] = None, color: Optional[Color] = None, *, subsurface: type[Surface], subsurface_args: Optional[Iterable[Any]] = None, subsurface_kwargs: Optional[dict[str, Any]] = None):
         super().__init__(rect, parent)
         self.color: Color = color or (127, 127, 127)
-        self._enabled = True
+        self.enabled = True
 
         subsurface_rect = pygame.Rect(0, 0, self.width*self.SUBSURFACE_SCALE, self.height*self.SUBSURFACE_SCALE)
         subsurface_rect.x = self.width//2 - subsurface_rect.centerx
@@ -315,22 +318,16 @@ class ButtonBase(Surface):
         self._subsurface = subsurface(subsurface_rect, self, *(subsurface_args or []), **(subsurface_kwargs or {}))
 
     def render(self):
-        pygame.draw.rect(self.surface, self.color, self.rect, border_radius=self.height//2)
+        pygame.draw.rect(self.surface, self.color, (0, 0, self.width, self.height), border_radius=self.height//2)
 
     def handle_click(self, x: int, y: int) -> None:
         self.onClick()
+    
+    def set_cursor(self, x: int, y: int) -> None:
+        pygame.mouse.set_cursor(self.CURSOR if self.enabled else self.CURSOR_DISABLED)
 
     @abstractmethod
     def onClick(self) -> None:...
-
-    @property
-    def enabled(self) -> bool:
-        return self._enabled
-    
-    @enabled.setter
-    def enabled(self, value: bool):
-        self._enabled = value
-        self.CURSOR = pygame.SYSTEM_CURSOR_HAND if self.enabled else pygame.SYSTEM_CURSOR_NO
     
     @property
     def width(self) -> int:
@@ -387,12 +384,6 @@ class ImageButton(ButtonBase):
         super().__init__(rect, parent, color, subsurface=Surface)
         self.subsurface = image or Surface(pygame.Rect(0, 0, 0, 0), self)
 
-def textButton(func: Callable[[TextButton], None]):
-    class Cls(TextButton):
-        def onClick(self) -> None:
-            func(self)
-    return Cls
-
 if __name__ == "__main__":
     class ExampleApp(ResizeableApp):
         running = True
@@ -409,13 +400,14 @@ if __name__ == "__main__":
             while self.running:
                 self.screen.process_events()
                 self.screen.update()
+                self.screen.set_cursor(*pygame.mouse.get_pos())
                 self.screen.draw(self.surface)
                 pygame.display.flip()
     
-    @textButton
-    def QuitButton(self: TextButton) -> None:
-        if self.app:
-            self.app.quit()
+    class QuitButton(TextButton):
+        def onClick(self) -> None:
+            if self.app:
+                self.app.quit()
     
     app = ExampleApp((800, 800))
     app.loop()
