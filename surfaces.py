@@ -1,5 +1,6 @@
 from __future__ import annotations
 import pygame
+import sys
 
 from abc import ABC, abstractmethod
 from typing import Optional, Callable, Concatenate, TypeVar, ParamSpec, Literal, Any, Iterable
@@ -23,14 +24,14 @@ class SurfaceBase(ABC):
         self._subsurfaces: list[Surface] = []
         self._parent = None
     
-    def update(self) -> None:
+    def update(self) -> Any:
         """Updates the surface and all subsurfaces"""
         self.surface.fill(self.BG_COLOR)
         self.render()
         for surface in self.subsurfaces:
             surface.update()
             self.surface.blit(surface.surface, surface.rect)
-        pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, self.width, self.height), 2)
+        pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, *self.size), 1)
     
     def render(self) -> None:...
     
@@ -75,6 +76,10 @@ class SurfaceBase(ABC):
         passed, _ = self.pass_function(lambda c, x, y: c.set_cursor(x, y), x, y)
         if not passed:
             pygame.mouse.set_cursor(self.CURSOR)
+
+    def onResize(self):
+        self.surface = pygame.Surface(self.size, pygame.SRCALPHA)
+
     @property
     def subsurfaces(self) -> list[Surface]:
         return self._subsurfaces
@@ -104,6 +109,7 @@ class SurfaceBase(ABC):
     @width.setter
     def width(self, value: int):
         self.rect.width = value
+        self.onResize()
     
     @property
     def height(self) -> int:
@@ -112,6 +118,7 @@ class SurfaceBase(ABC):
     @height.setter
     def height(self, value: int):
         self.rect.height = value
+        self.onResize()
 
     @property
     def size(self) -> tuple[int, int]:
@@ -120,6 +127,7 @@ class SurfaceBase(ABC):
     @size.setter
     def size(self, value: tuple[int, int]):
         self.width, self.height = value
+        self.onResize()
     
     @property
     @abstractmethod
@@ -171,11 +179,29 @@ class Surface(SurfaceBase):
             return None
         return self.parent.app
 
+class Cached(SurfaceBase):
+    """A surface that doesn't get redrawn every frame"""
+    def __init__(self, rect: pygame.Rect, *args, **kwargs):
+        super().__init__(rect, *args, **kwargs)
+        self.redraw = True
+    
+    def onResize(self):
+        self.redraw = True
+        return super().onResize()
+    
+    def update(self) -> bool:
+        if not self.redraw:
+            return False
+        self.redraw = False
+        super().update()
+        return True
+
 # ----------------------------------------------------------------
 # The base class for screens
 # A screen if a fullscreen surface.
 class Screen(SurfaceBase):
     """A Screen"""
+    BG_COLOR = pygame.Color(255, 255, 255)
 
     def __init__(self, rect: pygame.Rect, app: App):
         super().__init__(rect)
@@ -219,13 +245,46 @@ class Screen(SurfaceBase):
 # The base class for any any app using this library
 class App(ABC):
     WINDOW_FLAGS = 0
+    FPS = 60
 
-    def __init__(self, window_size: Coordinate) -> None:
+    def __init__(self, window_size: Coordinate, starting_screen: type[Screen], *args, **kwargs) -> None:
+        """Initialze the App
+        
+        Args:
+            window_size: the size of the window
+            starting_screen: the type of screen to use for starting
+            *args: the args to pass when initializeing the screen
+            **kwargs: the kwargs to pass when initializing the screen 
+        """
+
+        if not pygame.get_init():
+            pygame.init()
+        if not pygame.font.get_init():
+            pygame.font.init()
         self.surface: pygame.Surface = pygame.display.set_mode(window_size, self.WINDOW_FLAGS)
+        self.currentScreen: Screen = starting_screen(self.surface.get_rect(), self, *args, **kwargs)
+        self._clock = pygame.time.Clock()
 
-    @abstractmethod
     def quit(self) -> None:
         """Runs when the app is closed"""
+        pygame.quit()
+        sys.exit()
+    
+    def run(self) -> None:
+        """Starts the current app
+        
+        This function is blocking, so it must be the last one in your script"""
+        while True:
+            self.tick()
+            self._clock.tick(self.FPS)
+            pygame.display.flip()
+    
+    def tick(self):
+        """every frame this will be exected"""
+        self.currentScreen.process_events()
+        self.currentScreen.update()
+        self.currentScreen.set_cursor(*pygame.mouse.get_pos())
+        self.currentScreen.draw(self.surface)
 
 
 class ResizeableApp(App):
@@ -233,28 +292,27 @@ class ResizeableApp(App):
 
     def onResize(self, size: Coordinate, width: int, height: int) -> None:
         self.surface = pygame.display.set_mode(size, self.WINDOW_FLAGS)
+        self.currentScreen.size = size
 
 # ----------------------------------------------------------------
 # Other useful surfaces
-class Text(Surface):
+class ScalingText(Cached, Surface):
     def __init__(self, rect: pygame.Rect, parent: Optional[SurfaceBase] = None, text: str = "", color: Optional[Color] = None, font: Optional[pygame.font.Font] = None):
         super().__init__(rect, parent)
-        self._redraw = True
         self._text: str = text
         self._color: Color = color or (0, 0, 0)
         self._font = font or pygame.font.SysFont("calibri", 300)
 
-    def update(self) -> None:
-        if not self._redraw:
-            return
-        self._redraw = False
-        super().update()
+    def update(self) -> bool:
+        if not super().update():
+            return False
         if self.text:
             rendered_text = self.font.render(self.text, True, self.color)
             width, height = rendered_text.get_size()
             scale_factor = min(self.rect.width/width, self.rect.height/height)
             scaled_text = pygame.transform.smoothscale_by(rendered_text, scale_factor)
             self.surface.blit(scaled_text, (self.width/2-scaled_text.get_width()/2, self.height/2-scaled_text.get_height()/2))
+        return True
 
     @property
     def text(self) -> str:
@@ -263,7 +321,7 @@ class Text(Surface):
     @text.setter
     def text(self, value: str):
         self._text = value
-        self._redraw = True
+        self.redraw = True
 
     @property
     def color(self) -> Color:
@@ -272,7 +330,7 @@ class Text(Surface):
     @color.setter
     def color(self, value: Color):
         self._color = value
-        self._redraw = True
+        self.redraw = True
     
     @property
     def font(self) -> pygame.font.Font:
@@ -281,25 +339,7 @@ class Text(Surface):
     @font.setter
     def font(self, value: pygame.font.Font):
         self._font = value
-        self._redraw = True
-    
-    @property
-    def width(self) -> int:
-        return super().width
-    
-    @width.setter
-    def width(self, value: int):
-        super().width = value
-        self._redraw = True
-    
-    @property
-    def height(self) -> int:
-        return super().height
-    
-    @height.setter
-    def height(self, value: int):
-        super().height = value
-        self._redraw = True
+        self.redraw = True
 
 
 class ButtonBase(Surface):
@@ -365,16 +405,16 @@ class TextButton(ButtonBase):
     SUBSURFACE_SCALE = 0.63
 
     def __init__(self, rect: pygame.Rect, parent: Optional[SurfaceBase] = None, color: Optional[Color] = None, text: str = "", text_color: Optional[Color] = None, font: Optional[pygame.font.Font] = None):
-        super().__init__(rect, parent, color, subsurface=Text, subsurface_args=(text, text_color, font))
+        super().__init__(rect, parent, color, subsurface=ScalingText, subsurface_args=(text, text_color, font))
 
     @property
-    def text(self) -> Text:
-        if not isinstance(self.subsurface, Text):
+    def text(self) -> ScalingText:
+        if not isinstance(self.subsurface, ScalingText):
             raise ValueError
         return self.subsurface
 
     @text.setter
-    def text(self, value: Text):
+    def text(self, value: ScalingText):
         self.subsurface = value
 
 class ImageButton(ButtonBase):
@@ -382,27 +422,24 @@ class ImageButton(ButtonBase):
 
     def __init__(self, rect: pygame.Rect, parent: Optional[SurfaceBase] = None, color: Optional[Color] = None, image: Optional[Surface] = None):
         super().__init__(rect, parent, color, subsurface=Surface)
-        self.subsurface = image or Surface(pygame.Rect(0, 0, 0, 0), self)
+        self.subsurface = image or Surface(pygame.Rect(0, 0, *self.size), self)
+
+class Image(Surface):
+    """Contains only a single image"""
+
+    def __init__(self, rect: pygame.Rect, parent: Optional[SurfaceBase] = None, image: Optional[pygame.Surface] = None):
+        super().__init__(rect, parent)
+        self.image: pygame.Surface = image or pygame.Surface(self.size)
+
+    def render(self) -> None:
+        scaled_image = pygame.transform.smoothscale(self.image, self.size)
+        self.surface.blit(scaled_image, (0, 0))
 
 if __name__ == "__main__":
     class ExampleApp(ResizeableApp):
-        running = True
         def __init__(self, window_size: tuple[int, int]) -> None:
-            pygame.font.init()
-            super().__init__(window_size)
-            self.screen = Screen(self.surface.get_rect(), self)
-            self.btn = QuitButton(pygame.Rect(100, 100, 500, 200), self.screen, text="Quit")
-
-        def quit(self) -> None:
-            self.running = False
-    
-        def loop(self):
-            while self.running:
-                self.screen.process_events()
-                self.screen.update()
-                self.screen.set_cursor(*pygame.mouse.get_pos())
-                self.screen.draw(self.surface)
-                pygame.display.flip()
+            super().__init__(window_size, Screen)
+            self.btn = QuitButton(pygame.Rect(100, 100, 500, 200), self.currentScreen, text="Quit")
     
     class QuitButton(TextButton):
         def onClick(self) -> None:
@@ -410,4 +447,4 @@ if __name__ == "__main__":
                 self.app.quit()
     
     app = ExampleApp((800, 800))
-    app.loop()
+    app.run()

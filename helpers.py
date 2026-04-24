@@ -1,10 +1,10 @@
 import logging
 
-def setup_logging():
+def setup_logging(debug: bool = False):
     logger = logging.getLogger()
     handler = logging.StreamHandler()
     handler.setFormatter(_ColourFormatter())
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
     logger.addHandler(handler)
 
 
@@ -28,10 +28,7 @@ class _ColourFormatter(logging.Formatter):
     ]
 
     FORMATS = {
-        level: logging.Formatter(
-            f'\x1b[30;1m%(asctime)s\x1b[0m {colour}%(levelname)-8s\x1b[0m \x1b[35m%(name)s\x1b[0m %(message)s',
-            '%Y-%m-%d %H:%M:%S',
-        )
+        level: logging.Formatter(f'\x1b[30;1m%(asctime)s\x1b[0m {colour}%(levelname)-8s\x1b[0m \x1b[0m %(message)s')
         for level, colour in LEVEL_COLOURS
     }
 
