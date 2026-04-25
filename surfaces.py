@@ -4,7 +4,7 @@ import pygame
 import sys
 
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, Concatenate, TypeVar, ParamSpec, Literal, Any, Iterable
+from typing import Optional, Callable, Concatenate, TypeVar, ParamSpec, Literal, Any, Iterable, NoReturn
 
 from customtypes import *
 from customtypes import Coordinate
@@ -80,6 +80,9 @@ class SurfaceBase(ABC):
 
     def onResize(self):
         self.surface = pygame.Surface(self.size, pygame.SRCALPHA)
+        for surface in self._subsurfaces:
+            if isinstance(surface, Resizing):
+                surface.resize()
 
     @property
     def subsurfaces(self) -> list[Surface]:
@@ -197,6 +200,20 @@ class Cached(SurfaceBase):
         super().update()
         return True
 
+class Resizing(Surface):
+    """This surface resizes automatically according to a specific function"""
+    def __init__(self, parent: Optional[SurfaceBase] = None, *args, **kwargs):
+        super().__init__(pygame.Rect(0, 0, 0, 0), parent, *args, **kwargs)
+        self.resize()
+
+    def resize(self):
+        self.rect = self.getRect()
+        self.onResize()
+    
+    @abstractmethod
+    def getRect(self) -> pygame.Rect:
+        """Returns what the current rect should be"""
+
 # ----------------------------------------------------------------
 # The base class for screens
 # A screen if a fullscreen surface.
@@ -281,7 +298,7 @@ class App(ABC):
         pygame.quit()
         sys.exit()
     
-    def run(self) -> None:
+    def run(self) -> NoReturn:
         """Starts the current app
         
         This function is blocking, so it must be the last one in your script"""

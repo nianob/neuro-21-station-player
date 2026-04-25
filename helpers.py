@@ -1,4 +1,13 @@
 import logging
+import sys
+import traceback
+
+from typing import Callable, TypeVar, ParamSpec, Optional, NoReturn
+
+
+_T = TypeVar("_T")
+_P = ParamSpec("_P")
+
 
 def setup_logging(debug: bool = False):
     logger = logging.getLogger()
@@ -47,3 +56,26 @@ class _ColourFormatter(logging.Formatter):
         # Remove the cache layer
         record.exc_text = None
         return output
+    
+def log_critical(func: Callable[_P, _T]) -> Callable[_P, _T|NoReturn]:
+    """Logs crashes and exits"""
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T|NoReturn:
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            message = "\n".join(traceback.format_exception(e))
+            message = e.__class__.__name__ + "\n\n" + message
+            logging.critical(message)
+            sys.exit()
+    return wrapper
+
+def log_error(func: Callable[_P, _T]) -> Callable[_P, Optional[_T]]:
+    """Logs crashes and returns None instead of crashing"""
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Optional[_T]:
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            message = "\n".join(traceback.format_exception(e))
+            message = e.__class__.__name__ + "\n\n" + message
+            logging.error(message)
+    return wrapper

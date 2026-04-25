@@ -3,20 +3,30 @@ import json
 import logging
 import os
 import pygame
+from pygame.font import Font
 import requests
 import sys
 import time
-import traceback
 
 from io import BytesIO
 from niatools.settings import Settings
 from pathlib import Path
 from PIL import Image, ImageEnhance, ImageFilter
 from threading import Thread, Lock
+from typing import Optional
 
 import helpers
 import surfaces
 from customtypes import StationResponse
+
+class LoadingText(surfaces.Resizing, surfaces.ScalingText):
+    def __init__(self, parent: Optional[surfaces.SurfaceBase] = None, font: Optional[Font] = None):
+        super().__init__(parent, "Loading...", (255, 255, 255), font)
+    
+    def getRect(self) -> pygame.Rect:
+        if not self.parent:
+            raise ValueError
+        return pygame.Rect(self.parent.width/4, self.parent.height/4, self.parent.width/2, self.parent.height/2)
 
 class LoadingScreen(surfaces.Screen):
     BG_COLOR = pygame.Color(0, 0, 0)
@@ -24,19 +34,13 @@ class LoadingScreen(surfaces.Screen):
     def __init__(self, app: Main):
         self.app: Main
         super().__init__(app)
-        self.text = surfaces.ScalingText(pygame.Rect(self.width/4, self.height/4, self.width/2, self.height/2), self, "Loading...", (255, 255, 255), self.app.font)
-
-    def onResize(self):
-        super().onResize()
-        self.text.rect = pygame.Rect(self.width/4, self.height/4, self.width/2, self.height/2)
-        self.text.onResize()
+        self.text = LoadingText(self, self.app.font)
 
 class NoMenuScreen(surfaces.Cached, surfaces.Screen):
     def render(self) -> None:
         self.app: Main
         scaled = pygame.transform.smoothscale(self.app.converted_image, self.size)
         self.surface.blit(scaled, (0, 0))
-        logging.debug("NoMenuScreen redrawn")
     
     def handle_click(self, x: int, y: int) -> None:
         self.app.main_screen.show()
@@ -46,12 +50,24 @@ class NoMenuScreen(surfaces.Cached, surfaces.Screen):
             self.app.main_screen.show()
     
 class MainScreen(surfaces.Screen):
-    def handle_keypress(self, key: int) -> None:
+    def __init__(self, app: surfaces.App):
         self.app: Main
+        super().__init__(app)
+        self.main_container = MainContainer(self)
+    
+    def handle_keypress(self, key: int) -> None:
         if key == pygame.K_F1:
             self.app.no_menu_screen.show()
 
+class MainContainer(surfaces.Resizing, surfaces.Surface):
+    def getRect(self) -> pygame.Rect:
+        self.app: Main
+        if self.parent is None:
+            raise ValueError
+        return pygame.Rect(self.parent.width*(0.5-self.app.settings.get("main_container_width")/2), 0, self.parent.width*self.app.settings.get("main_container_width"), self.height)
+
 class Main(surfaces.App):
+    @helpers.log_critical
     def __init__(self) -> None:
         self.data: StationResponse
 
@@ -79,8 +95,9 @@ class Main(surfaces.App):
         self.no_menu_screen = NoMenuScreen(self)
         self.main_screen = MainScreen(self)
 
-        Thread(target=self.init, daemon=True).start()
+        self.init_thread = Thread(target=self.init, daemon=True).start()
 
+    @helpers.log_critical
     def init(self):
         logging.info("Secondary init thread started")
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
@@ -100,6 +117,7 @@ class Main(surfaces.App):
         response.raise_for_status()
         return BytesIO(response.content)
     
+    @helpers.log_error
     def refresh_data(self):
         """Refreshes the data from the station"""
         old_songid = self.data.get("now_playing").get("song").get("id") if self.data else None
@@ -131,18 +149,13 @@ class Main(surfaces.App):
             self.blurred_image = pygame.image.frombytes(ImageEnhance.Brightness(self.raw_image).enhance(self.settings.get("darken_factor")).filter(ImageFilter.GaussianBlur(self.settings.get("blur_scale"))).tobytes(), self.raw_image.size, self.raw_image.mode).convert() # pyright: ignore[reportArgumentType]
             self._image_lock.release()
             self.no_menu_screen.redraw = True
-            logging.debug("Image Reload Set")
         if self.data.get("playing_next").get("played_at")+1 < time.time() and self.data_reload_cooldown < time.time():
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
 
+    @helpers.log_critical
     def run(self):
-        try:
-            return super().run()
-        except Exception as e:
-            message = "\n".join(traceback.format_exception(e))
-            message = e.__class__.__name__ + "\n\n" + message
-            logging.critical(message)
+        super().run()
 
 class MainResizeable(Main, surfaces.ResizeableApp):...
 
