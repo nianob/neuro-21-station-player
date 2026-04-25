@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import pygame
 import sys
 
@@ -181,8 +182,8 @@ class Surface(SurfaceBase):
 
 class Cached(SurfaceBase):
     """A surface that doesn't get redrawn every frame"""
-    def __init__(self, rect: pygame.Rect, *args, **kwargs):
-        super().__init__(rect, *args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.redraw = True
     
     def onResize(self):
@@ -203,8 +204,8 @@ class Screen(SurfaceBase):
     """A Screen"""
     BG_COLOR = pygame.Color(255, 255, 255)
 
-    def __init__(self, rect: pygame.Rect, app: App):
-        super().__init__(rect)
+    def __init__(self, app: App):
+        super().__init__(app.surface.get_rect())
         self._app: App = app
 
     def draw(self, surface: pygame.Surface) -> None:
@@ -237,6 +238,15 @@ class Screen(SurfaceBase):
     def handle_keypress(self, key: int) -> None:
         """Handles all keypresses"""
     
+    def onSetVisible(self):
+        """Called when this screen is set to visible"""
+        self.size = self.app.surface.get_size()
+
+    def show(self):
+        """sets this screen to the currently visivle screen in the app"""
+        self._app._currentScreen = self
+        self.onSetVisible()
+    
     @property
     def app(self) -> App:
         return self._app
@@ -262,8 +272,9 @@ class App(ABC):
         if not pygame.font.get_init():
             pygame.font.init()
         self.surface: pygame.Surface = pygame.display.set_mode(window_size, self.WINDOW_FLAGS)
-        self.currentScreen: Screen = starting_screen(self.surface.get_rect(), self, *args, **kwargs)
+        self._currentScreen: Screen
         self._clock = pygame.time.Clock()
+        starting_screen(self, *args, **kwargs).show()
 
     def quit(self) -> None:
         """Runs when the app is closed"""
@@ -281,18 +292,19 @@ class App(ABC):
     
     def tick(self):
         """every frame this will be exected"""
-        self.currentScreen.process_events()
-        self.currentScreen.update()
-        self.currentScreen.set_cursor(*pygame.mouse.get_pos())
-        self.currentScreen.draw(self.surface)
+        self._currentScreen.process_events()
+        self._currentScreen.update()
+        self._currentScreen.set_cursor(*pygame.mouse.get_pos())
+        self._currentScreen.draw(self.surface)
 
 
 class ResizeableApp(App):
     WINDOW_FLAGS = pygame.RESIZABLE
 
     def onResize(self, size: Coordinate, width: int, height: int) -> None:
-        self.surface = pygame.display.set_mode(size, self.WINDOW_FLAGS)
-        self.currentScreen.size = size
+        if os.name == "nt":
+            self.surface = pygame.display.set_mode(size, self.WINDOW_FLAGS) # Setting the size again is required on windows but breaks on linux, so we will only do it on windows. Linux handles that automatically
+        self._currentScreen.size = size
 
 # ----------------------------------------------------------------
 # Other useful surfaces
@@ -439,7 +451,7 @@ if __name__ == "__main__":
     class ExampleApp(ResizeableApp):
         def __init__(self, window_size: tuple[int, int]) -> None:
             super().__init__(window_size, Screen)
-            self.btn = QuitButton(pygame.Rect(100, 100, 500, 200), self.currentScreen, text="Quit")
+            self.btn = QuitButton(pygame.Rect(100, 100, 500, 200), self._currentScreen, text="Quit")
     
     class QuitButton(TextButton):
         def onClick(self) -> None:
