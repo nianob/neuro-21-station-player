@@ -36,18 +36,29 @@ class LoadingScreen(surfaces.Screen):
         super().__init__(app)
         self.text = LoadingText(self, self.app.font)
 
-class NoMenuScreen(surfaces.Cached, surfaces.Screen):
-    def render(self) -> None:
+class BgImage(surfaces.Cached, surfaces.Resizing, surfaces.Background):
+    def render(self):
         self.app: Main
         scaled = pygame.transform.smoothscale(self.app.converted_image, self.size)
         self.surface.blit(scaled, (0, 0))
-    
-    def handle_click(self, x: int, y: int) -> None:
+
+    def getRect(self) -> pygame.Rect:
+        if not self.parent:
+            raise ValueError
+        return self.parent.rect.copy()
+
+class NoMenuScreen(surfaces.Cached, surfaces.Screen):
+    def onClick(self, x: int, y: int) -> None:
+        self.app: Main
         self.app.main_screen.show()
 
-    def handle_keypress(self, key: int) -> None:
+    def onKeypress(self, key: int) -> None:
         if key in (pygame.K_F1, pygame.K_ESCAPE):
             self.app.main_screen.show()
+
+    def onSetVisible(self):
+        self.app.bg_image.parent = self
+        return super().onSetVisible()
     
 class MainScreen(surfaces.Screen):
     def __init__(self, app: surfaces.App):
@@ -55,16 +66,43 @@ class MainScreen(surfaces.Screen):
         super().__init__(app)
         self.main_container = MainContainer(self)
     
-    def handle_keypress(self, key: int) -> None:
+    def onKeypress(self, key: int) -> None:
         if key == pygame.K_F1:
             self.app.no_menu_screen.show()
 
-class MainContainer(surfaces.Resizing, surfaces.Surface):
+    def onSetVisible(self):
+        self.app.bg_image.parent = self
+        return super().onSetVisible()
+
+class MainContainer(surfaces.Resizing):
+    def __init__(self, parent: Optional[surfaces.SurfaceBase] = None):
+        super().__init__(parent)
+        self.app: Main
+        self.parent: MainScreen
+        self.bg = MainContainerBg(self)
+        self.height = 200
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(self.parent.width*(0.5-self.app.settings.get("main_container_width")/2), self.parent.height/2-self.height/2, self.parent.width*self.app.settings.get("main_container_width"), self.height)
+    
+class MainContainerBg(surfaces.Cached, surfaces.Resizing, surfaces.Background):
     def getRect(self) -> pygame.Rect:
         self.app: Main
-        if self.parent is None:
-            raise ValueError
-        return pygame.Rect(self.parent.width*(0.5-self.app.settings.get("main_container_width")/2), 0, self.parent.width*self.app.settings.get("main_container_width"), self.height)
+        self.parent: MainContainer
+        return pygame.Rect((0, 0), self.parent.size)
+
+    def render(self):
+        scaled_blur = pygame.transform.smoothscale(self.app.blurred_image, self.parent.parent.size).convert_alpha()
+        blur_rect = pygame.Rect((0, 0), self.size)
+        mask_surf = pygame.Surface(self.size, pygame.SRCALPHA)
+        mask_surf.fill((0, 0, 0, 0))
+        pygame.draw.rect(mask_surf, (255, 255, 255, 255), blur_rect, border_radius=int(max(self.size) * self.app.settings.get("border_radius")))
+        mask = pygame.mask.from_surface(mask_surf)
+        self.surface.blit(scaled_blur, (-self.x, -self.y))
+        alpha_surf = mask.to_surface(setcolor=(255, 255, 255, 255), unsetcolor=(0, 0, 0, 0))
+        self.surface.blit(alpha_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+class SongTitle(surfaces.Cached, surfaces.Resizing):...
 
 class Main(surfaces.App):
     @helpers.log_critical
@@ -94,6 +132,8 @@ class Main(surfaces.App):
 
         self.no_menu_screen = NoMenuScreen(self)
         self.main_screen = MainScreen(self)
+
+        self.bg_image = BgImage(self.main_screen)
 
         self.init_thread = Thread(target=self.init, daemon=True).start()
 
@@ -148,7 +188,9 @@ class Main(surfaces.App):
             self.converted_image = pygame.image.frombytes(self.raw_image.tobytes(), self.raw_image.size, self.raw_image.mode).convert() # pyright: ignore[reportArgumentType]
             self.blurred_image = pygame.image.frombytes(ImageEnhance.Brightness(self.raw_image).enhance(self.settings.get("darken_factor")).filter(ImageFilter.GaussianBlur(self.settings.get("blur_scale"))).tobytes(), self.raw_image.size, self.raw_image.mode).convert() # pyright: ignore[reportArgumentType]
             self._image_lock.release()
+            self.bg_image.redraw = True
             self.no_menu_screen.redraw = True
+            self.main_screen.main_container.bg.redraw = True
         if self.data.get("playing_next").get("played_at")+1 < time.time() and self.data_reload_cooldown < time.time():
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()

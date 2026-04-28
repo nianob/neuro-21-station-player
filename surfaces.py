@@ -70,8 +70,8 @@ class SurfaceBase(ABC):
 
         return 0 <= moved_x <= self.width and 0 <= moved_y <= self.height 
     
-    def handle_click(self, x: int, y: int) -> None:
-        self.pass_function(lambda c, x, y: c.handle_click(x, y), x, y)
+    def onClick(self, x: int, y: int) -> None:
+        self.pass_function(lambda c, x, y: c.onClick(x, y), x, y)
        
     def set_cursor(self, x: int, y: int) -> None:
         passed, _ = self.pass_function(lambda c, x, y: c.set_cursor(x, y), x, y)
@@ -87,6 +87,15 @@ class SurfaceBase(ABC):
     @property
     def subsurfaces(self) -> list[Surface]:
         return self._subsurfaces
+
+    @property
+    def pos(self) -> Coordinate:
+        """The absolute position"""
+        return self.x, self.y
+    
+    @pos.setter
+    def pos(self, value: Coordinate):
+        self.x, self.y = value
 
     @property
     def x(self) -> int:
@@ -184,7 +193,11 @@ class Surface(SurfaceBase):
         return self.parent.app
 
 class Cached(SurfaceBase):
-    """A surface that doesn't get redrawn every frame"""
+    """Indicates that this surface shouldn't be redrawn every frame
+    
+    When a surface is a subclass of this, the surface will only be redrawn when the `redraw` flag is set.
+    A further surface thye should always be specified when creating a subclass of this.
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.redraw = True
@@ -201,7 +214,10 @@ class Cached(SurfaceBase):
         return True
 
 class Resizing(Surface):
-    """This surface resizes automatically according to a specific function"""
+    """This surface resizes automatically according to a specific function
+    
+    Can be used together with another surface type, defaults to `Surface` if no one is specified.
+    """
     def __init__(self, parent: Optional[SurfaceBase] = None, *args, **kwargs):
         super().__init__(pygame.Rect(0, 0, 0, 0), parent, *args, **kwargs)
         self.resize()
@@ -213,6 +229,26 @@ class Resizing(Surface):
     @abstractmethod
     def getRect(self) -> pygame.Rect:
         """Returns what the current rect should be"""
+
+class Background(Surface):
+    """Indicates that this surface should be in the background.
+    
+    This surface will always be placed on the bottom instead of top if the surfaces.
+    Can be used together with another surface type, defaults to `Surface` if no one is specified.
+    """
+    @property
+    def parent(self) -> SurfaceBase | None:
+        return super().parent
+    
+    @parent.setter
+    def parent(self, value: Optional[SurfaceBase]):
+        if value == self._parent:
+            return
+        if self._parent:
+            self._parent._subsurfaces.remove(self)
+        if value:
+            value._subsurfaces.insert(0, self)
+        self._parent = value
 
 # ----------------------------------------------------------------
 # The base class for screens
@@ -244,15 +280,15 @@ class Screen(SurfaceBase):
         
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                self.handle_click(*event.pos)
+                self.onClick(*event.pos)
             elif event.type == pygame.KEYDOWN:
-                self.handle_keypress(event.key)
+                self.onKeypress(event.key)
             elif event.type == pygame.QUIT:
                 self.app.quit()
             elif event.type == pygame.VIDEORESIZE and isinstance(self.app, ResizeableApp):
                 self.app.onResize(event.size, event.w, event.h)
     
-    def handle_keypress(self, key: int) -> None:
+    def onKeypress(self, key: int) -> None:
         """Handles all keypresses"""
     
     def onSetVisible(self):
@@ -389,14 +425,14 @@ class ButtonBase(Surface):
     def render(self):
         pygame.draw.rect(self.surface, self.color, (0, 0, self.width, self.height), border_radius=self.height//2)
 
-    def handle_click(self, x: int, y: int) -> None:
-        self.onClick()
+    def onClick(self, x: int, y: int) -> None:
+        self.onButtonClicked()
     
     def set_cursor(self, x: int, y: int) -> None:
         pygame.mouse.set_cursor(self.CURSOR if self.enabled else self.CURSOR_DISABLED)
 
     @abstractmethod
-    def onClick(self) -> None:...
+    def onButtonClicked(self) -> None:...
     
     @property
     def width(self) -> int:
@@ -471,7 +507,7 @@ if __name__ == "__main__":
             self.btn = QuitButton(pygame.Rect(100, 100, 500, 200), self._currentScreen, text="Quit")
     
     class QuitButton(TextButton):
-        def onClick(self) -> None:
+        def onButtonClicked(self) -> None:
             if self.app:
                 self.app.quit()
     
