@@ -9,8 +9,10 @@ settings.set("size", (600, 600))
 settings.set("data_url", "https://radio.twinskaraoke.com/api/nowplaying_static/neuro_21.json")
 settings.set("darken_factor", 0.75)
 settings.set("blur_scale", 20)
-settings.set("main_container_width", 0.7)
 settings.set("border_radius", 0.1)
+settings.set("author_scale", 0.65)
+settings.set("font_color", (255, 255, 255))
+settings.set("content_padding", 0.03)
 
 print(settings)
 

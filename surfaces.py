@@ -320,8 +320,6 @@ class App(ABC):
             **kwargs: the kwargs to pass when initializing the screen 
         """
 
-        if not pygame.get_init():
-            pygame.init()
         if not pygame.font.get_init():
             pygame.font.init()
         self.surface: pygame.Surface = pygame.display.set_mode(window_size, self.WINDOW_FLAGS)
@@ -367,6 +365,7 @@ class ScalingText(Cached, Surface):
         self._text: str = text
         self._color: Color = color or (0, 0, 0)
         self._font = font or pygame.font.SysFont("calibri", 300)
+        self.text_size: Coordinate = (0, 0)
 
     def update(self) -> bool:
         if not super().update():
@@ -377,6 +376,7 @@ class ScalingText(Cached, Surface):
             scale_factor = min(self.rect.width/width, self.rect.height/height)
             scaled_text = pygame.transform.smoothscale_by(rendered_text, scale_factor)
             self.surface.blit(scaled_text, (self.width/2-scaled_text.get_width()/2, self.height/2-scaled_text.get_height()/2))
+            self.text_size = scaled_text.get_size()
         return True
 
     @property

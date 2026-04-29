@@ -13,11 +13,91 @@ from niatools.settings import Settings
 from pathlib import Path
 from PIL import Image, ImageEnhance, ImageFilter
 from threading import Thread, Lock
-from typing import Optional
+from typing import Any, Optional, Literal
 
 import helpers
 import surfaces
 from customtypes import StationResponse
+
+fallbackData: StationResponse = {
+        "cache": "",
+        "is_online": False,
+        "listeners": {
+            "current": 0,
+            "total": 0,
+            "unique": 0
+            },
+        "live": {
+            "art": None,
+            "broadcast_start": None,
+            "streamer_name": "",
+            "is_live": False
+        },
+        "now_playing": {
+            "duration": 1,
+            "elapsed": 0,
+            "is_request": False,
+            "played_at": 0,
+            "playlist": "",
+            "remaining": 0,
+            "sh_id": 0,
+            "song": {
+                "album": "",
+                "art": "",
+                "artist": "???",
+                "custom_fields": {},
+                "genre": "",
+                "id": "",
+                "isrc": "",
+                "lyrics": "",
+                "text": "",
+                "title": "???"
+            },
+            "streamer": ""
+        },
+        "playing_next": {
+            "cued_at": 0,
+            "duration": 1,
+            "is_request": False,
+            "played_at": 0,
+            "playlist": "",
+            "song": {
+                "album": "",
+                "art": "",
+                "artist": "???",
+                "custom_fields": {},
+                "genre": "",
+                "id": "",
+                "isrc": "",
+                "lyrics": "",
+                "text": "",
+                "title": "???"
+            }
+        },
+        "song_history": [],
+        "station": {
+            "backend": "",
+            "description": "",
+            "frontend": "",
+            "hls_enabled": False,
+            "hls_is_default": False,
+            "hls_listeners": 0,
+            "hls_url": "",
+            "id": 0,
+            "is_public": False,
+            "listen_url": "",
+            "mounts": [],
+            "name": "",
+            "playlist_m3u_url": "",
+            "playlist_pls_url": "",
+            "public_player_url": "",
+            "remotes": [],
+            "requests_enabled": False,
+            "shortcode": "",
+            "timezone": "",
+            "url": ""
+        },
+    }
 
 class LoadingText(surfaces.Resizing, surfaces.ScalingText):
     def __init__(self, parent: Optional[surfaces.SurfaceBase] = None, font: Optional[Font] = None):
@@ -72,6 +152,7 @@ class MainScreen(surfaces.Screen):
 
     def onSetVisible(self):
         self.app.bg_image.parent = self
+        self.main_container.onResize()
         return super().onSetVisible()
 
 class MainContainer(surfaces.Resizing):
@@ -80,10 +161,20 @@ class MainContainer(surfaces.Resizing):
         self.app: Main
         self.parent: MainScreen
         self.bg = MainContainerBg(self)
-        self.height = 200
+        self.title = SongTitle(self)
+        self.height = 0
 
     def getRect(self) -> pygame.Rect:
-        return pygame.Rect(self.parent.width*(0.5-self.app.settings.get("main_container_width")/2), self.parent.height/2-self.height/2, self.parent.width*self.app.settings.get("main_container_width"), self.height)
+        return pygame.Rect(
+            self.parent.width*(0.5-self.app.settings.get("main_container_width")/2)-self.app.content_padding,
+            self.parent.height/2-self.height/2,
+            self.parent.width*self.app.settings.get("main_container_width")+self.app.content_padding*2,
+            self.height
+        )
+    
+    def update(self) -> Any:
+        self.height = self.title.height+self.app.content_padding*2
+        return super().update()
     
 class MainContainerBg(surfaces.Cached, surfaces.Resizing, surfaces.Background):
     def getRect(self) -> pygame.Rect:
@@ -96,13 +187,34 @@ class MainContainerBg(surfaces.Cached, surfaces.Resizing, surfaces.Background):
         blur_rect = pygame.Rect((0, 0), self.size)
         mask_surf = pygame.Surface(self.size, pygame.SRCALPHA)
         mask_surf.fill((0, 0, 0, 0))
-        pygame.draw.rect(mask_surf, (255, 255, 255, 255), blur_rect, border_radius=int(max(self.size) * self.app.settings.get("border_radius")))
+        pygame.draw.rect(mask_surf, (255, 255, 255, 255), blur_rect, border_radius=int(self.app.content_padding*2))
         mask = pygame.mask.from_surface(mask_surf)
         self.surface.blit(scaled_blur, (-self.x, -self.y))
         alpha_surf = mask.to_surface(setcolor=(255, 255, 255, 255), unsetcolor=(0, 0, 0, 0))
         self.surface.blit(alpha_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
-class SongTitle(surfaces.Cached, surfaces.Resizing):...
+class SongTitle(surfaces.Cached, surfaces.Resizing):
+    def render(self):
+        self.app: Main
+        self.parent: MainContainer
+        title = self.app.font.render(self.app.data.get("now_playing").get("song").get("title"), True, self.app.settings.get("font_color"))
+        author = self.app.font.render(self.app.data.get("now_playing").get("song").get("artist"), True, self.app.settings.get("font_color"))
+        title_scale_factor = self.width/max(title.get_width(), author.get_width()*self.app.settings.get("author_scale"))
+        scaled_title = pygame.transform.smoothscale_by(title, title_scale_factor)
+        scaled_author = pygame.transform.smoothscale_by(author, title_scale_factor*self.app.settings.get("author_scale"))
+        new_height = scaled_title.get_height()+scaled_author.get_height()
+        if new_height != self.height:
+            self.height = new_height
+        self.surface.blit(scaled_title, (self.width/2 - scaled_title.get_width()/2, 0))
+        self.surface.blit(scaled_author, (self.width/2 - scaled_author.get_width()/2, scaled_title.get_height()))
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.app.content_padding,
+            self.app.content_padding,
+            self.parent.width-self.app.content_padding*2,
+            self.height
+        )
 
 class Main(surfaces.App):
     @helpers.log_critical
@@ -115,10 +227,11 @@ class Main(surfaces.App):
         self.data_dir: str = os.path.join(Path.home(), "neuro_21_station_player")
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
         self.settings: Settings = Settings(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"))
-        self.font = pygame.font.SysFont(pygame.font.get_default_font(), 300)
+        self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
 
         super().__init__(self.settings.get("size"), LoadingScreen)
 
+        self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
         self.data_reload_cooldown = 0
         self.data_reloaded = False
         self.image_reloaded = False
@@ -141,7 +254,8 @@ class Main(surfaces.App):
     def init(self):
         logging.info("Secondary init thread started")
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
-        self.refresh_data()
+        if not self.refresh_data():
+            self.data = fallbackData
         self.initialized = True
         with self._screen_lock:
             self.main_screen.show()
@@ -158,13 +272,13 @@ class Main(surfaces.App):
         return BytesIO(response.content)
     
     @helpers.log_error
-    def refresh_data(self):
+    def refresh_data(self) -> Literal[True]:
         """Refreshes the data from the station"""
         old_songid = self.data.get("now_playing").get("song").get("id") if self.data else None
         old_art = self.data.get("now_playing").get("song").get("art") if self.data else None
         self.data = self.fetch_data()
         if old_songid == self.data.get("now_playing").get("song").get("id"):
-            return
+            return True
         logging.debug("new data loaded")
         self.data_reloaded = True
         if old_art != self.data.get("now_playing").get("song").get("art"):
@@ -172,6 +286,7 @@ class Main(surfaces.App):
                 self.raw_image = Image.open(self.fetch_image(self.data.get("now_playing").get("song").get("art")))
         logging.debug("new image loaded")
         self.image_reloaded = True
+        return True
 
     def reload_data_tick(self):
         """Refreshes the data from the station, should be used in the tick loop as it resets the reloading flag"""
@@ -191,6 +306,9 @@ class Main(surfaces.App):
             self.bg_image.redraw = True
             self.no_menu_screen.redraw = True
             self.main_screen.main_container.bg.redraw = True
+        if self.data_reloaded:
+            self.data_reloaded = False
+            self.main_screen.main_container.title.redraw = True
         if self.data.get("playing_next").get("played_at")+1 < time.time() and self.data_reload_cooldown < time.time():
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
@@ -199,7 +317,10 @@ class Main(surfaces.App):
     def run(self):
         super().run()
 
-class MainResizeable(Main, surfaces.ResizeableApp):...
+class MainResizeable(Main, surfaces.ResizeableApp):
+    def onResize(self, size: tuple[int, int], width: int, height: int) -> None:
+        self.content_padding = width*self.settings.get("content_padding")
+        return super().onResize(size, width, height)
 
 if __name__ == "__main__":
     helpers.setup_logging(debug="--debug" in sys.argv)
