@@ -13,6 +13,10 @@ settings.set("border_radius", 0.1)
 settings.set("author_scale", 0.65)
 settings.set("font_color", (255, 255, 255))
 settings.set("content_padding", 0.03)
+settings.set("controls_size", 0.075)
+settings.set("button_padding", 0.01)
+settings.set("autoplay", False)
+settings.set("button_color", (134, 215, 247, 170))
 
 print(settings)
 

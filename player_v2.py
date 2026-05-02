@@ -44,14 +44,14 @@ fallbackData: StationResponse = {
             "song": {
                 "album": "",
                 "art": "",
-                "artist": "???",
+                "artist": "unknown",
                 "custom_fields": {},
                 "genre": "",
                 "id": "",
                 "isrc": "",
                 "lyrics": "",
                 "text": "",
-                "title": "???"
+                "title": "No Song"
             },
             "streamer": ""
         },
@@ -64,14 +64,14 @@ fallbackData: StationResponse = {
             "song": {
                 "album": "",
                 "art": "",
-                "artist": "???",
+                "artist": "unknown",
                 "custom_fields": {},
                 "genre": "",
                 "id": "",
                 "isrc": "",
                 "lyrics": "",
                 "text": "",
-                "title": "???"
+                "title": "No Song"
             }
         },
         "song_history": [],
@@ -157,23 +157,31 @@ class MainScreen(surfaces.Screen):
 
 class MainContainer(surfaces.Resizing):
     def __init__(self, parent: Optional[surfaces.SurfaceBase] = None):
+        self._height = 0
         super().__init__(parent)
         self.app: Main
         self.parent: MainScreen
         self.bg = MainContainerBg(self)
         self.title = SongTitle(self)
+        self.row1 = ConrtolsRow1(self)
         self.height = 0
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
             self.parent.width*(0.5-self.app.settings.get("main_container_width")/2)-self.app.content_padding,
-            self.parent.height/2-self.height/2,
+            self.parent.height/2-self._height/2,
             self.parent.width*self.app.settings.get("main_container_width")+self.app.content_padding*2,
-            self.height
+            self._height
         )
     
     def update(self) -> Any:
-        self.height = self.title.height+self.app.content_padding*2
+        self._height = (
+            self.title.height +
+            self.row1.height +
+            self.app.content_padding*3
+        )
+        if self._height != self.height:
+            self.resize()
         return super().update()
     
 class MainContainerBg(surfaces.Cached, surfaces.Resizing, surfaces.Background):
@@ -215,6 +223,57 @@ class SongTitle(surfaces.Cached, surfaces.Resizing):
             self.parent.width-self.app.content_padding*2,
             self.height
         )
+    
+class ConrtolsRow1(surfaces.Resizing):
+    def __init__(self, parent: MainContainer):
+        self.app: Main
+        self.parent: MainContainer
+        super().__init__(parent)
+        self.playpause_btn = PlayPauseButton(self, self.app.settings.get("button_color"))
+        self.progress = ProgressBar(self)
+    
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.app.content_padding,
+            self.parent.title.height + self.app.content_padding*2,
+            self.parent.width - self.app.content_padding*2,
+            self.app.controls_size
+        )
+
+class ProgressBar(surfaces.Resizing):
+    def getRect(self) -> pygame.Rect:
+        self.parent: ConrtolsRow1
+        self.app: Main
+        return pygame.Rect(
+            0,
+            0,
+            self.parent.width - self.parent.playpause_btn.width - self.app.button_padding,
+            self.parent.height
+        )
+
+class PlayPauseButton(surfaces.Resizing, surfaces.ImageButton):
+    def __init__(self, parent: ConrtolsRow1, color: tuple[int, int, int]):
+        self.parent: ConrtolsRow1
+        self.app: Main
+        super().__init__(parent, color)
+        playimage = pygame.image.load(os.path.join(self.app.data_dir, "unmute.png"))
+        pauseimage = pygame.image.load(os.path.join(self.app.data_dir, "mute.png"))
+        self.playimage = surfaces.Image(playimage.get_rect(), None, playimage)
+        self.pauseimage = surfaces.Image(pauseimage.get_rect(), None, pauseimage)
+        self.subsurface = self.playimage if self.app.playing else self.pauseimage
+
+    def onButtonClicked(self) -> None:
+        self.app.playing = not self.app.playing
+        self.subsurface = self.playimage if self.app.playing else self.pauseimage
+        logging.debug(f"Playing: {self.app.playing}")
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.parent.width - self.parent.height,
+            0,
+            self.parent.height,
+            self.parent.height
+        )
 
 class Main(surfaces.App):
     @helpers.log_critical
@@ -222,16 +281,23 @@ class Main(surfaces.App):
         self.data: StationResponse
 
         logging.info("Initializing")
-        pygame.font.init()
 
         self.data_dir: str = os.path.join(Path.home(), "neuro_21_station_player")
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
         self.settings: Settings = Settings(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"))
-        self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
 
+        self.init_lock = Lock()
+        self.init_lock.acquire()
+        self.init_thread = Thread(target=self.init, daemon=True).start()
+
+        pygame.font.init()
+        self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
         super().__init__(self.settings.get("size"), LoadingScreen)
 
         self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
+        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
+        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
+        self.playing = self.settings.get("autoplay")
         self.data_reload_cooldown = 0
         self.data_reloaded = False
         self.image_reloaded = False
@@ -247,19 +313,19 @@ class Main(surfaces.App):
         self.main_screen = MainScreen(self)
 
         self.bg_image = BgImage(self.main_screen)
-
-        self.init_thread = Thread(target=self.init, daemon=True).start()
+        self.init_lock.release()
+        logging.info("Main thread init finished")
 
     @helpers.log_critical
     def init(self):
-        logging.info("Secondary init thread started")
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
         if not self.refresh_data():
             self.data = fallbackData
         self.initialized = True
-        with self._screen_lock:
-            self.main_screen.show()
-        logging.info("Initialized")
+        with self.init_lock:
+            with self._screen_lock:
+                self.main_screen.show()
+            logging.info("Initialization Complete")
 
     def fetch_data(self) -> StationResponse:
         response = requests.get(self.settings.get("data_url"))
@@ -320,6 +386,8 @@ class Main(surfaces.App):
 class MainResizeable(Main, surfaces.ResizeableApp):
     def onResize(self, size: tuple[int, int], width: int, height: int) -> None:
         self.content_padding = width*self.settings.get("content_padding")
+        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
+        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
         return super().onResize(size, width, height)
 
 if __name__ == "__main__":

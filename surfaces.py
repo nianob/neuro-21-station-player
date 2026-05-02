@@ -27,10 +27,11 @@ class SurfaceBase(ABC):
     
     def update(self) -> Any:
         """Updates the surface and all subsurfaces"""
+        for surface in self.subsurfaces:
+            surface.update()
         self.surface.fill(self.BG_COLOR)
         self.render()
         for surface in self.subsurfaces:
-            surface.update()
             self.surface.blit(surface.surface, surface.rect)
         pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, *self.size), 1)
     
@@ -50,7 +51,7 @@ class SurfaceBase(ABC):
 
                 return: What the function returned, None if no function was executed
         """
-        for surface in self.subsurfaces:
+        for surface in self.subsurfaces[::-1]:
             if surface.collide(x, y):
                 return True, func(surface, x, y, *args, **kwargs)
         return False, None
@@ -431,28 +432,15 @@ class ButtonBase(Surface):
     def set_cursor(self, x: int, y: int) -> None:
         pygame.mouse.set_cursor(self.CURSOR if self.enabled else self.CURSOR_DISABLED)
 
+    def onResize(self):
+        self.subsurface.width = int(self.width*self.SUBSURFACE_SCALE)
+        self.subsurface.rect.x = self.width//2-self.subsurface.width//2
+        self.subsurface.height = int(self.height*self.SUBSURFACE_SCALE)
+        self.subsurface.rect.y = self.height//2-self.subsurface.height//2
+        super().onResize()
+
     @abstractmethod
     def onButtonClicked(self) -> None:...
-    
-    @property
-    def width(self) -> int:
-        return super().width
-    
-    @width.setter
-    def width(self, value: int):
-        super().width = value
-        self.subsurface.width = int(value*self.SUBSURFACE_SCALE)
-        self.subsurface.rect.x = value//2-self.subsurface.width//2
-
-    @property
-    def height(self) -> int:
-        return super().height
-    
-    @height.setter
-    def height(self, value: int):
-        super().height = value
-        self.subsurface.height = int(value*self.SUBSURFACE_SCALE)
-        self.subsurface.rect.y = value//-self.subsurface.height//2
     
     @property
     def subsurface(self) -> Surface:
@@ -498,7 +486,7 @@ class Image(Surface):
 
     def render(self) -> None:
         scaled_image = pygame.transform.smoothscale(self.image, self.size)
-        self.surface.blit(scaled_image, (0, 0))
+        self.surface.blit(scaled_image, (0, 0))       
 
 if __name__ == "__main__":
     class ExampleApp(ResizeableApp):
@@ -513,3 +501,5 @@ if __name__ == "__main__":
     
     app = ExampleApp((800, 800))
     app.run()
+
+import logging
