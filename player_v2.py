@@ -17,7 +17,7 @@ from typing import Any, Optional, Literal
 
 import helpers
 import surfaces
-from customtypes import Color, StationResponse
+from customtypes import StationResponse
 
 fallbackData: StationResponse = {
         "cache": "",
@@ -163,7 +163,8 @@ class MainContainer(surfaces.Resizing):
         self.parent: MainScreen
         self.bg = MainContainerBg(self)
         self.title = SongTitle(self)
-        self.row1 = ConrtolsRow1(self)
+        self.row1 = ControlsRow1(self)
+        self.row2 = ControlsRow2(self)
         self.height = 0
 
     def getRect(self) -> pygame.Rect:
@@ -178,6 +179,8 @@ class MainContainer(surfaces.Resizing):
         self._height = (
             self.title.height +
             self.row1.height +
+            self.row2.height +
+            self.app.button_padding +
             self.app.content_padding*3
         )
         if self._height != self.height:
@@ -224,7 +227,7 @@ class SongTitle(surfaces.Cached, surfaces.Resizing):
             self.height
         )
     
-class ConrtolsRow1(surfaces.Resizing):
+class ControlsRow1(surfaces.Resizing):
     def __init__(self, parent: MainContainer):
         self.app: Main
         self.parent: MainContainer
@@ -243,7 +246,7 @@ class ConrtolsRow1(surfaces.Resizing):
 
 class ProgressBar(surfaces.Resizing):
     def __init__(self, parent: Optional[surfaces.SurfaceBase] = None):
-        self.parent: ConrtolsRow1
+        self.parent: ControlsRow1
         self.app: Main
         super().__init__(parent)
         self.empty_color = self.app.settings.get("progress_bar_color")
@@ -268,9 +271,9 @@ class ProgressBar(surfaces.Resizing):
         pygame.draw.rect(self.surface, self.color, progress, border_radius=min(progress.height, progress.width)//2)
 
 class StreamTypeButton(surfaces.Cached, surfaces.Resizing, surfaces.TextButton):
-    def __init__(self, parent: ConrtolsRow1):
+    def __init__(self, parent: ControlsRow1):
         self.app: Main
-        self.parent: ConrtolsRow1
+        self.parent: ControlsRow1
         super().__init__(parent, parent.app.settings.get("button_color"), parent.app.stream_type, parent.app.settings.get("button_text_color"), parent.app.font)
 
     def onButtonClicked(self) -> None:
@@ -288,8 +291,8 @@ class StreamTypeButton(surfaces.Cached, surfaces.Resizing, surfaces.TextButton):
         )
 
 class PlayPauseButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
-    def __init__(self, parent: ConrtolsRow1):
-        self.parent: ConrtolsRow1
+    def __init__(self, parent: ControlsRow1):
+        self.parent: ControlsRow1
         self.app: Main
         super().__init__(parent, parent.app.settings.get("button_color"))
         playimage = pygame.image.load(os.path.join(self.app.data_dir, "unmute.png"))
@@ -311,6 +314,62 @@ class PlayPauseButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
             self.parent.height,
             self.parent.height
         )
+    
+class ControlsRow2(surfaces.Resizing):
+    def __init__(self, parent: MainContainer):
+        self.parent: MainContainer
+        self.app: Main
+        super().__init__(parent)
+        self.time_info = TimeInfo(self)
+        self.open_btn = OpenButton(self)
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.app.content_padding,
+            self.parent.title.height + self.parent.row1.height + self.app.button_padding + self.app.content_padding*2,
+            self.parent.width - self.app.content_padding*2,
+            self.app.controls_size
+        )
+
+class TimeInfo(surfaces.Resizing, surfaces.ScalingText):
+    def __init__(self, parent: ControlsRow2):
+        self.parent: ControlsRow2
+        self.app: Main
+        super().__init__(parent, "", parent.app.settings.get("font_color"), parent.app.font)
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            0,
+            0,
+            self.parent.parent.row1.progress.width/2,
+            self.parent.height/2
+        )
+    
+    def update(self) -> bool:
+        currentplaytime = max(time.time()-self.app.data.get("now_playing").get("played_at"), 0)
+        self.text = f"{int(currentplaytime//60)}:{int(currentplaytime%60):02} / {int(self.app.data.get("now_playing").get("duration")//60)}:{int(self.app.data.get("now_playing").get("duration")%60):02}"
+        return super().update()
+
+class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
+    def __init__(self, parent: ControlsRow2):
+        self.parent: ControlsRow2
+        self.app: Main
+        image = pygame.image.load(os.path.join(parent.app.data_dir, "open.png"))
+        surface = surfaces.Image(image.get_rect(), None, image)
+        super().__init__(parent, parent.app.settings.get("button_color"), surface)
+        self.enabled = False
+    
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.parent.width - self.parent.height,
+            0,
+            self.parent.height,
+            self.parent.height
+        )
+    
+    def onButtonClicked(self) -> None:
+        link = self.app.settings.get("open_link")%self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")
+        logging.info(f"Opening {link}")
 
 class Main(surfaces.App):
     @helpers.log_critical
@@ -383,12 +442,10 @@ class Main(surfaces.App):
         self.data = self.fetch_data()
         if old_songid == self.data.get("now_playing").get("song").get("id"):
             return True
-        logging.debug("new data loaded")
         self.data_reloaded = True
         if old_art != self.data.get("now_playing").get("song").get("art"):
             with self._image_lock:
                 self.raw_image = Image.open(self.fetch_image(self.data.get("now_playing").get("song").get("art")))
-        logging.debug("new image loaded")
         self.image_reloaded = True
         return True
 
@@ -403,6 +460,7 @@ class Main(surfaces.App):
         if not self.initialized:
             return
         if self.image_reloaded and self._image_lock.acquire(blocking=False):
+            logging.debug("Image reload recieved")
             self.image_reloaded = False
             self.converted_image = pygame.image.frombytes(self.raw_image.tobytes(), self.raw_image.size, self.raw_image.mode).convert() # pyright: ignore[reportArgumentType]
             self.blurred_image = pygame.image.frombytes(ImageEnhance.Brightness(self.raw_image).enhance(self.settings.get("darken_factor")).filter(ImageFilter.GaussianBlur(self.settings.get("blur_scale"))).tobytes(), self.raw_image.size, self.raw_image.mode).convert() # pyright: ignore[reportArgumentType]
@@ -411,8 +469,10 @@ class Main(surfaces.App):
             self.no_menu_screen.redraw = True
             self.main_screen.main_container.bg.redraw = True
         if self.data_reloaded:
+            logging.debug("Data reload recieved")
             self.data_reloaded = False
             self.main_screen.main_container.title.redraw = True
+            self.main_screen.main_container.row2.open_btn.enabled = bool(self.data.get("now_playing").get("song").get("custom_fields").get("songId"))
         if self.data.get("playing_next").get("played_at")+1 < time.time() and self.data_reload_cooldown < time.time():
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
@@ -429,6 +489,6 @@ class MainResizeable(Main, surfaces.ResizeableApp):
         return super().onResize(size, width, height)
 
 if __name__ == "__main__":
-    helpers.setup_logging(debug="--debug" in sys.argv)
+    helpers.setup_logging()
     app = MainResizeable() if "--resizeable" in sys.argv else Main()
     app.run()

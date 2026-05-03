@@ -2,14 +2,16 @@ import logging
 import sys
 import traceback
 
-from typing import Callable, TypeVar, ParamSpec, Optional, NoReturn
+from typing import Callable, TypeVar, ParamSpec, Optional, NoReturn, Optional
 
 
 _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
 
-def setup_logging(debug: bool = False):
+def setup_logging(debug: Optional[bool] = None):
+    if debug is None:
+        debug = "--debug" in sys.argv
     logger = logging.getLogger()
     handler = logging.StreamHandler()
     handler.setFormatter(_ColourFormatter())

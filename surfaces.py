@@ -427,7 +427,8 @@ class ButtonBase(Surface):
         pygame.draw.rect(self.surface, self.color, (0, 0, self.width, self.height), border_radius=self.height//2)
 
     def onClick(self, x: int, y: int) -> None:
-        self.onButtonClicked()
+        if self.enabled:
+            self.onButtonClicked()
     
     def set_cursor(self, x: int, y: int) -> None:
         pygame.mouse.set_cursor(self.CURSOR if self.enabled else self.CURSOR_DISABLED)
