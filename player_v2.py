@@ -17,7 +17,7 @@ from typing import Any, Optional, Literal
 
 import helpers
 import surfaces
-from customtypes import StationResponse
+from customtypes import Color, StationResponse
 
 fallbackData: StationResponse = {
         "cache": "",
@@ -229,7 +229,8 @@ class ConrtolsRow1(surfaces.Resizing):
         self.app: Main
         self.parent: MainContainer
         super().__init__(parent)
-        self.playpause_btn = PlayPauseButton(self, self.app.settings.get("button_color"))
+        self.playpause_btn = PlayPauseButton(self)
+        self.streamtype_btn = StreamTypeButton(self)
         self.progress = ProgressBar(self)
     
     def getRect(self) -> pygame.Rect:
@@ -241,21 +242,56 @@ class ConrtolsRow1(surfaces.Resizing):
         )
 
 class ProgressBar(surfaces.Resizing):
-    def getRect(self) -> pygame.Rect:
+    def __init__(self, parent: Optional[surfaces.SurfaceBase] = None):
         self.parent: ConrtolsRow1
         self.app: Main
+        super().__init__(parent)
+        self.empty_color = self.app.settings.get("progress_bar_color")
+        self.color = self.app.settings.get("button_color")
+
+    def getRect(self) -> pygame.Rect:
         return pygame.Rect(
             0,
             0,
-            self.parent.width - self.parent.playpause_btn.width - self.app.button_padding,
+            self.parent.width - self.parent.playpause_btn.width - self.parent.streamtype_btn.width - self.app.button_padding*2,
+            self.parent.height
+        )
+    
+    def render(self):
+        progress_bar_rect = pygame.Rect(0, self.height/4, self.width, self.height/2)
+        pygame.draw.rect(self.surface, self.empty_color, progress_bar_rect, border_radius=progress_bar_rect.height//2)
+        progress = progress_bar_rect.copy()
+        progress.width = int(min(
+            (progress.width-progress.height) * (time.time()-self.app.data.get("now_playing").get("played_at")) / self.app.data.get("now_playing").get("duration") + progress.height,
+            progress.width
+        ))
+        pygame.draw.rect(self.surface, self.color, progress, border_radius=min(progress.height, progress.width)//2)
+
+class StreamTypeButton(surfaces.Cached, surfaces.Resizing, surfaces.TextButton):
+    def __init__(self, parent: ConrtolsRow1):
+        self.app: Main
+        self.parent: ConrtolsRow1
+        super().__init__(parent, parent.app.settings.get("button_color"), parent.app.stream_type, parent.app.settings.get("button_text_color"), parent.app.font)
+
+    def onButtonClicked(self) -> None:
+        self.app.stream_type = "hls" if self.app.stream_type == "mp3" else "mp3"
+        self.text.text = self.app.stream_type
+        self.redraw = True
+        logging.debug(f"Stream Type: {self.app.stream_type}")
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.parent.width - self.parent.height*2 - self.parent.playpause_btn.width - self.app.button_padding,
+            0,
+            self.parent.height*2,
             self.parent.height
         )
 
-class PlayPauseButton(surfaces.Resizing, surfaces.ImageButton):
-    def __init__(self, parent: ConrtolsRow1, color: tuple[int, int, int]):
+class PlayPauseButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
+    def __init__(self, parent: ConrtolsRow1):
         self.parent: ConrtolsRow1
         self.app: Main
-        super().__init__(parent, color)
+        super().__init__(parent, parent.app.settings.get("button_color"))
         playimage = pygame.image.load(os.path.join(self.app.data_dir, "unmute.png"))
         pauseimage = pygame.image.load(os.path.join(self.app.data_dir, "mute.png"))
         self.playimage = surfaces.Image(playimage.get_rect(), None, playimage)
@@ -265,6 +301,7 @@ class PlayPauseButton(surfaces.Resizing, surfaces.ImageButton):
     def onButtonClicked(self) -> None:
         self.app.playing = not self.app.playing
         self.subsurface = self.playimage if self.app.playing else self.pauseimage
+        self.redraw = True
         logging.debug(f"Playing: {self.app.playing}")
 
     def getRect(self) -> pygame.Rect:
@@ -298,6 +335,7 @@ class Main(surfaces.App):
         self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
         self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
         self.playing = self.settings.get("autoplay")
+        self.stream_type = self.settings.get("stream_type")
         self.data_reload_cooldown = 0
         self.data_reloaded = False
         self.image_reloaded = False

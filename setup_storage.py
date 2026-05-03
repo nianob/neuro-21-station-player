@@ -17,6 +17,10 @@ settings.set("controls_size", 0.075)
 settings.set("button_padding", 0.01)
 settings.set("autoplay", False)
 settings.set("button_color", (134, 215, 247, 170))
+settings.set("progress_bar_color", (255, 255, 255, 100))
+settings.set("steam_type", "mp3")
+settings.set("button_text_color", (0, 0, 0))
+settings.set("stream_type", "mp3")
 
 print(settings)
 
