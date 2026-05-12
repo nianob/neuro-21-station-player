@@ -261,6 +261,7 @@ class Screen(SurfaceBase):
     def __init__(self, app: App):
         super().__init__(app.surface.get_rect())
         self._app: App = app
+        self._event_handlers: list[Callable[[list[pygame.event.Event]], None]] = []
 
     def draw(self, surface: pygame.Surface) -> None:
         """Draws this screen onto a surface
@@ -288,6 +289,9 @@ class Screen(SurfaceBase):
                 self.app.quit()
             elif event.type == pygame.VIDEORESIZE and isinstance(self.app, ResizeableApp):
                 self.app.onResize(event.size, event.w, event.h)
+        
+        for eventHandler in self._event_handlers:
+            eventHandler(events)
     
     def onKeypress(self, key: int) -> None:
         """Handles all keypresses"""
@@ -304,6 +308,9 @@ class Screen(SurfaceBase):
     @property
     def app(self) -> App:
         return self._app
+    
+    def addEventHandler(self, handler: Callable[[list[pygame.event.Event]], None]):
+        self._event_handlers.append(handler)
     
 # ----------------------------------------------------------------
 # The base class for any any app using this library
@@ -502,5 +509,3 @@ if __name__ == "__main__":
     
     app = ExampleApp((800, 800))
     app.run()
-
-import logging

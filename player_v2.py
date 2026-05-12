@@ -324,6 +324,7 @@ class ControlsRow2(surfaces.Resizing):
         self.time_info = TimeInfo(self)
         self.open_btn = OpenButton(self)
         self.like_btn = LikeButton(self)
+        self.volume_slider = VolumeSlider(self)
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -351,6 +352,50 @@ class TimeInfo(surfaces.Resizing, surfaces.ScalingText):
         currentplaytime = max(time.time()-self.app.data.get("now_playing").get("played_at"), 0)
         self.text = f"{int(currentplaytime//60)}:{int(currentplaytime%60):02} / {int(self.app.data.get("now_playing").get("duration")//60)}:{int(self.app.data.get("now_playing").get("duration")%60):02}"
         return super().update()
+
+class VolumeSlider(surfaces.Cached, surfaces.Resizing):
+    CURSOR = pygame.SYSTEM_CURSOR_HAND
+
+    def __init__(self, parent: ControlsRow2):
+        self.parent: ControlsRow2
+        self.app: Main
+        super().__init__(parent)
+        self.value = self.app.settings.get("volume")
+        self.bar_color = self.app.settings.get("progress_bar_color")
+        self.selector_color = self.app.settings.get("button_color")
+        self._listener_added = False
+        self._clicked = False
+
+    def render(self):
+        bar_rect = pygame.Rect(0, self.height*4/10, self.width, self.height/5)
+        pygame.draw.rect(self.surface, self.bar_color, bar_rect, border_radius=self.height//10)
+        selector_rect = pygame.Rect(self.value*(self.width-self.height/5), 0, self.height/5, self.height)
+        pygame.draw.rect(self.surface, self.selector_color, selector_rect, border_radius=self.height//10)
+    
+    def update(self) -> bool:
+        self.redraw = self.redraw or self._clicked
+        if not self._listener_added:
+            self._listener_added = True
+            self.app.main_screen.addEventHandler(self.eventHandler) # The listener must be added delayed to avoid a crash
+        return super().update()
+    
+    def eventHandler(self, events: list[pygame.event.Event]):
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.collide(*event.pos):
+                self._clicked = True
+            elif event.type == pygame.MOUSEMOTION and self._clicked:
+                x = (event.pos[0] - self.x) / self.width
+                self.value = min(1, max(0, x))
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self._clicked = False
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.parent.time_info.width + self.app.button_padding,
+            0,
+            self.parent.like_btn.rect.x - self.parent.time_info.width - self.app.button_padding*2,
+            self.parent.height
+        )
 
 class LikeButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
     def __init__(self, parent: ControlsRow2):
@@ -450,7 +495,7 @@ class Main(surfaces.App):
         if not self.refresh_data():
             self.data = fallbackData
         self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
-        logging.debug(self.favourites)
+        logging.debug(f"All liked songs: {self.favourites}")
         self.initialized = True
         with self.init_lock:
             with self._screen_lock:
