@@ -22,6 +22,7 @@ settings.set("steam_type", "mp3")
 settings.set("button_text_color", (0, 0, 0))
 settings.set("stream_type", "mp3")
 settings.set("open_link", "https://neurokaraoke.com/song/%s")
+settings.set("referal_url", "https://twinskaraoke.com/")
 
 print(settings)
 

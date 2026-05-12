@@ -1,7 +1,9 @@
 import logging
 import sys
+import tkinter as tk
 import traceback
 
+from tkinter import messagebox
 from typing import Callable, TypeVar, ParamSpec, Optional, NoReturn, Optional
 
 
@@ -68,6 +70,14 @@ def log_critical(func: Callable[_P, _T]) -> Callable[_P, _T|NoReturn]:
             message = "\n".join(traceback.format_exception(e))
             message = e.__class__.__name__ + "\n\n" + message
             logging.critical(message)
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "Neuro 21 Station Player Crashed!",
+                "Neuro 21 Station Player encountered a critical exception and cannot continue.",
+                detail='\n'.join(message.splitlines()[-5:])
+                )
+            root.destroy()
             sys.exit()
     return wrapper
 

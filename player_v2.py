@@ -1,9 +1,9 @@
 from __future__ import annotations
 import json
 import logging
+import neurokaraoke_hook as nkh
 import os
 import pygame
-from pygame.font import Font
 import requests
 import sys
 import time
@@ -12,6 +12,7 @@ from io import BytesIO
 from niatools.settings import Settings
 from pathlib import Path
 from PIL import Image, ImageEnhance, ImageFilter
+from pygame.font import Font
 from threading import Thread, Lock
 from typing import Any, Optional, Literal
 
@@ -322,6 +323,7 @@ class ControlsRow2(surfaces.Resizing):
         super().__init__(parent)
         self.time_info = TimeInfo(self)
         self.open_btn = OpenButton(self)
+        self.like_btn = LikeButton(self)
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -349,6 +351,32 @@ class TimeInfo(surfaces.Resizing, surfaces.ScalingText):
         currentplaytime = max(time.time()-self.app.data.get("now_playing").get("played_at"), 0)
         self.text = f"{int(currentplaytime//60)}:{int(currentplaytime%60):02} / {int(self.app.data.get("now_playing").get("duration")//60)}:{int(self.app.data.get("now_playing").get("duration")%60):02}"
         return super().update()
+
+class LikeButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
+    def __init__(self, parent: ControlsRow2):
+        self.parent: ControlsRow2
+        self.app: Main
+        super().__init__(parent, parent.app.settings.get("button_color"))
+        notlikedimage = pygame.image.load(os.path.join(self.app.data_dir, "unliked.png"))
+        likedimage = pygame.image.load(os.path.join(self.app.data_dir, "liked.png"))
+        self.notlikedimage = surfaces.Image(notlikedimage.get_rect(), None, notlikedimage)
+        self.likedimage = surfaces.Image(likedimage.get_rect(), None, likedimage)
+        self.subsurface = self.likedimage if self.app.song_liked else self.notlikedimage
+
+    def onButtonClicked(self) -> None:
+        self.redraw = True
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.parent.width - self.parent.height - self.parent.open_btn.width - self.app.button_padding,
+            0,
+            self.parent.height,
+            self.parent.height
+        )
+    
+    def refresh(self):
+        self.subsurface = self.likedimage if self.app.song_liked else self.notlikedimage
+        self.redraw = True
 
 class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
     def __init__(self, parent: ControlsRow2):
@@ -380,7 +408,7 @@ class Main(surfaces.App):
 
         self.data_dir: str = os.path.join(Path.home(), "neuro_21_station_player")
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
-        self.settings: Settings = Settings(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"))
+        self.settings: Settings = Settings(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), isGlobal=True)
 
         self.init_lock = Lock()
         self.init_lock.acquire()
@@ -390,6 +418,8 @@ class Main(surfaces.App):
         self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
         super().__init__(self.settings.get("size"), LoadingScreen)
 
+        nkh.init()
+
         self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
         self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
         self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
@@ -398,6 +428,7 @@ class Main(surfaces.App):
         self.data_reload_cooldown = 0
         self.data_reloaded = False
         self.image_reloaded = False
+        self.song_liked = False
         self.initialized = False
         self._screen_lock = Lock()
         self._image_lock = Lock()
@@ -418,6 +449,8 @@ class Main(surfaces.App):
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
         if not self.refresh_data():
             self.data = fallbackData
+        self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
+        logging.debug(self.favourites)
         self.initialized = True
         with self.init_lock:
             with self._screen_lock:
@@ -473,6 +506,9 @@ class Main(surfaces.App):
             self.data_reloaded = False
             self.main_screen.main_container.title.redraw = True
             self.main_screen.main_container.row2.open_btn.enabled = bool(self.data.get("now_playing").get("song").get("custom_fields").get("songId"))
+            self.song_liked = self.data.get("now_playing").get("song").get("custom_fields").get("songId") in self.favourites
+            logging.debug(f"Song liked: {self.song_liked} (ID: {self.data.get("now_playing").get("song").get("custom_fields").get("songId")})")
+            self.main_screen.main_container.row2.like_btn.refresh()
         if self.data.get("playing_next").get("played_at")+1 < time.time() and self.data_reload_cooldown < time.time():
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
