@@ -29,9 +29,14 @@ jobs:
       - name: Build Package
         run: pyinstaller -y --onefile -n "Neuro 21 Station Player" -i "./data/icon.ico" --add-binary ffmpeg/windows:ffmpeg/windows --add-data data:data --windowed ./player_v2.py
       
-      - name: Upload dist files
+      - name: Create and publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          draft: false
+          prerelease: false
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: "Automated release for ${{ github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
