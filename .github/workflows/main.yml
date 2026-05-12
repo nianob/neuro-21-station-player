@@ -33,10 +33,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          draft: false
-          prerelease: false
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body: "Automated release for ${{ github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
