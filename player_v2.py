@@ -463,6 +463,8 @@ class VolumeSlider(surfaces.Cached, surfaces.Resizing):
         )
 
 class LikeButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
+    CURSOR = pygame.SYSTEM_CURSOR_NO
+
     def __init__(self, parent: ControlsRow2):
         self.parent: ControlsRow2
         self.app: Main

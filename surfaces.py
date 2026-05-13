@@ -33,7 +33,8 @@ class SurfaceBase(ABC):
         self.render()
         for surface in self.subsurfaces:
             self.surface.blit(surface.surface, surface.rect)
-        pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, *self.size), 1)
+        if self.app and self.app.show_hitboxes:
+            pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, *self.size), 1)
     
     def render(self) -> None:...
     
@@ -318,7 +319,7 @@ class App(ABC):
     WINDOW_FLAGS = 0
     FPS = 60
 
-    def __init__(self, window_size: Coordinate, starting_screen: type[Screen], *args, **kwargs) -> None:
+    def __init__(self, window_size: Coordinate, starting_screen: type[Screen], *args, show_hitboxes: Optional[bool] = None, **kwargs) -> None:
         """Initialze the App
         
         Args:
@@ -331,6 +332,7 @@ class App(ABC):
         if not pygame.font.get_init():
             pygame.font.init()
         self.surface: pygame.Surface = pygame.display.set_mode(window_size, self.WINDOW_FLAGS)
+        self.show_hitboxes: bool = show_hitboxes if not show_hitboxes is None else "--hitboxes" in sys.argv
         self._currentScreen: Screen
         self._clock = pygame.time.Clock()
         starting_screen(self, *args, **kwargs).show()
