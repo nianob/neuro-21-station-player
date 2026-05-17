@@ -8,6 +8,7 @@ import requests
 import subprocess
 import sys
 import time
+import webbrowser
 
 from io import BytesIO
 from niatools.settings import Settings
@@ -342,7 +343,7 @@ class StreamTypeButton(surfaces.Cached, surfaces.Resizing, surfaces.TextButton):
             self.app.selected_player.start()
 
         self.redraw = True
-        logging.debug(f"Stream Type: {self.app.stream_type}")
+        logging.info(f"Stream type set to {self.app.stream_type}")
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -367,7 +368,10 @@ class PlayPauseButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
         self.app.selected_player.stop() if self.app.selected_player.is_playing else self.app.selected_player.start()
         self.subsurface = self.playimage if self.app.selected_player.is_playing else self.pauseimage
         self.redraw = True
-        logging.debug(f"Playing: {self.app.selected_player.is_playing}")
+        if self.app.selected_player.is_playing:
+            logging.info("Playback resumed")
+        else:
+            logging.info("Playback paused")
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -509,6 +513,7 @@ class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
     
     def onButtonClicked(self) -> None:
         link = self.app.settings.get("open_link")%self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")
+        webbrowser.open(link)
         logging.info(f"Opening {link}")
 
 # --------------------------------
@@ -613,7 +618,10 @@ class Main(surfaces.App):
         if old_art != self.data.get("now_playing").get("song").get("art"):
             with self._image_lock:
                 self.raw_image = Image.open(self.fetch_image(self.data.get("now_playing").get("song").get("art")))
-        self.image_reloaded = True
+                self.image_reloaded = True
+        if self.selected_player.is_playing:
+            nkh.send_playcount(str(self.data.get("now_playing").get("song").get("custom_fields").get("songId")))
+            logging.debug("Playcount request sent!")
         return True
 
     def reload_data_tick(self):
