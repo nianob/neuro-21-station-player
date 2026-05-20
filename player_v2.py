@@ -11,7 +11,7 @@ import time
 import webbrowser
 
 from io import BytesIO
-from niatools.settings import Settings
+from niatools.storage import ThreadingStorage
 from pathlib import Path
 from PIL import Image, ImageEnhance, ImageFilter
 from pygame.font import Font
@@ -520,7 +520,8 @@ class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
 # Main App
 
 def cleanup(ret: NoneType, self: Main) -> NoReturn:
-    self.selected_player.stop()
+    if not self.__dict__.get("selected_player") is None:
+        self.selected_player.stop()
     del self
     sys.exit()
 
@@ -533,7 +534,9 @@ class Main(surfaces.App):
 
         self.data_dir: str = os.path.join(Path.home(), "neuro_21_station_player")
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
-        self.settings: Settings = Settings(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), isGlobal=True)
+        self.settings: ThreadingStorage = ThreadingStorage(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), autosave_interval=1800, total=True)
+
+        logging.debug(f"Settings: {self.settings._storage}")
 
         self.init_lock = Lock()
         self.init_lock.acquire()
@@ -543,7 +546,7 @@ class Main(surfaces.App):
         self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
         super().__init__(self.settings.get("size"), LoadingScreen)
 
-        nkh.init()
+        nkh.init(self.settings)
 
         self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
         self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
@@ -574,7 +577,7 @@ class Main(surfaces.App):
 
         # Load Data
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
-        if not self.refresh_data():
+        if not self.refresh_data(fully_initialized=False):
             self.data = fallbackData
 
         # Load Favourites
@@ -607,7 +610,7 @@ class Main(surfaces.App):
         return BytesIO(response.content)
     
     @helpers.log_error
-    def refresh_data(self) -> Literal[True]:
+    def refresh_data(self, fully_initialized: bool = True) -> Literal[True]:
         """Refreshes the data from the station"""
         old_songid = self.data.get("now_playing").get("song").get("id") if self.data else None
         old_art = self.data.get("now_playing").get("song").get("art") if self.data else None
@@ -619,7 +622,7 @@ class Main(surfaces.App):
             with self._image_lock:
                 self.raw_image = Image.open(self.fetch_image(self.data.get("now_playing").get("song").get("art")))
                 self.image_reloaded = True
-        if self.selected_player.is_playing:
+        if fully_initialized and self.selected_player.is_playing:
             nkh.send_playcount(str(self.data.get("now_playing").get("song").get("custom_fields").get("songId")))
             logging.debug("Playcount request sent!")
         return True

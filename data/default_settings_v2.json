@@ -1,1 +1,21 @@
-{}
+{
+    "size": [600, 600],
+    "data_url": "https://radio.twinskaraoke.com/api/nowplaying_static/neuro_21.json",
+    "darken_factor": 0.75,
+    "main_container_width": 0.7,
+    "blur_scale": 20,
+    "border_radius": 0.1,
+    "author_scale": 0.65,
+    "font_color": [255, 255, 255],
+    "content_padding": 0.03,
+    "controls_size": 0.075,
+    "button_padding": 0.01,
+    "autoplay": false,
+    "button_color": [134, 215, 247, 170],
+    "progress_bar_color": [255, 255, 255, 100],
+    "stream_type": "mp3",
+    "button_text_color": [0, 0, 0],
+    "open_link": "https://neurokaraoke.com/song/%s",
+    "referal_url": "https://twinskaraoke.com/",
+    "volume": 0.15
+}

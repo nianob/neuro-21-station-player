@@ -1,31 +1,16 @@
-import io
-import os
 import regex
 import requests
-import subprocess
 import webview
 
-from pathlib import Path
-from typing import Any, Optional
-from niatools.settings import Settings, getGlobal
+from threading import Lock
+from typing import Any
+from niatools.storage import StorageBase
 
 # --------------------------------------------------------------------------------
 # Internals
-
-class SensitiveSettings(Settings):
-    def save(self, filename: Optional[str] = None) -> None:
-        super().save(filename)
-        final_filename = filename or self.filename
-        if not final_filename:
-            raise ValueError("Location to save the file is unknown")
-        if os.name == "nt":
-            try:
-                subprocess.run(["attrib", "+H", final_filename], check=True)
-            except subprocess.CalledProcessError as e:
-                print(f"Failed to hide sensitive file \"{final_filename}\": {e}")
-
-sensitive_settings: SensitiveSettings
-settings: Settings
+settings: StorageBase
+_settings_lock = Lock()
+_settings_lock.acquire()
 
 # --------------------------------------------------------------------------------
 # Internals
@@ -38,28 +23,31 @@ def _webview_on_loaded(window: webview.Window) -> None:
     if not match:
         return
     window.destroy()
-    sensitive_settings.set("token", match[1])
-    sensitive_settings.save()
+    with _settings_lock:
+        settings.set("nkh_token", match[1])
+        settings.save()
 
 def _send_request(method: str, url: str) -> str:
-    response = requests.request(method, url, headers={"authorization": f"Bearer {sensitive_settings.get("token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
+    with _settings_lock:
+        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
     response.raise_for_status()
     return response.content.decode("UTF-8")
 
 def _send_json_request(method: str, url: str) -> Any:
-    response = requests.request(method, url, headers={"authorization": f"Bearer {sensitive_settings.get("token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
+    with _settings_lock:
+        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
     response.raise_for_status()
     return response.json()
 
 # --------------------------------------------------------------------------------
 # Public Functions
 
-def init():
-    global settings, sensitive_settings
-    sensitive_settings = SensitiveSettings(os.path.join(Path.home(), "neuro_21_station_player", ".nk_settings.json"), io.StringIO("{}"))
+def init(storage: StorageBase):
+    global settings
     if __name__ != "__main__":
-        settings = getGlobal()
-    if not sensitive_settings.get("token"):
+        settings = storage
+    _settings_lock.release()
+    if not storage.get("nkh_token"):
         login()
 
 def login() -> None:
@@ -77,6 +65,3 @@ def send_playcount(song_id: str) -> str:
 def get_favourites() -> Any:
     """Gets all favourite songs of the user"""
     return _send_json_request("GET", "https://api.neurokaraoke.com/api/user/favorites")
-
-if __name__ == "__main__":
-    init()
