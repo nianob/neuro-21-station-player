@@ -1,10 +1,10 @@
 from __future__ import annotations
 import json
 import logging
-import neurokaraoke_hook as nkh
 import os
 import pygame
 import requests
+import shutil
 import subprocess
 import sys
 import time
@@ -20,6 +20,7 @@ from types import NoneType
 from typing import Any, Optional, Literal, NoReturn
 
 import helpers
+import neurokaraoke_hook as nkh
 import surfaces
 from customtypes import StationResponse
 
@@ -546,34 +547,23 @@ class Main(surfaces.App):
         self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
         super().__init__(self.settings.get("size"), LoadingScreen)
 
-        nkh.init(self.settings)
-
-        self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
-        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
-        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
-        self.stream_type = self.settings.get("stream_type")
-        self.data_reload_cooldown = 0
-        self.data_reloaded = False
-        self.image_reloaded = False
-        self.song_liked = False
         self.initialized = False
         self._screen_lock = Lock()
         self._image_lock = Lock()
 
         self.raw_image: Image.Image
-        self.converted_image = pygame.Surface((1, 1))
-        self.blurred_image = pygame.Surface((1, 1))
-
-        self.no_menu_screen = NoMenuScreen(self)
-        self.main_screen = MainScreen(self)
-
-        self.bg_image = BgImage(self.main_screen)
 
         self.init_lock.release()
         logging.info("Main thread init finished")
 
     @helpers.log_critical
     def init(self):
+        nkh.init(self.settings)
+
+        self.data_reload_cooldown = 0
+        self.data_reloaded = False
+        self.image_reloaded = False
+        self.song_liked = False
 
         # Load Data
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
@@ -583,6 +573,24 @@ class Main(surfaces.App):
         # Load Favourites
         self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
         logging.debug(f"All liked songs: {self.favourites}")
+
+        # Copy Required Files
+        for name in ["mute.png", "unmute.png", "open.png", "liked.png", "unliked.png"]:
+            if not os.path.exists(os.path.join(self.data_dir, name)):
+                shutil.copyfile(os.path.join(self.working_dir, "data", name), os.path.join(self.data_dir, name))
+
+        # variables
+        self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
+        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
+        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
+        self.stream_type = self.settings.get("stream_type")
+
+        # Surfaces
+        self.converted_image = pygame.Surface((1, 1))
+        self.blurred_image = pygame.Surface((1, 1))
+        self.no_menu_screen = NoMenuScreen(self)
+        self.main_screen = MainScreen(self)
+        self.bg_image = BgImage(self.main_screen)
 
         # Load Players
         self.mp3_player = Player(self, self.data.get("station").get("listen_url"), self.main_screen.main_container.row2.volume_slider.value)
