@@ -1,24 +1,30 @@
 from __future__ import annotations
 import json
 import logging
-import neurokaraoke_hook as nkh
 import os
 import pygame
 import requests
+import shutil
+import subprocess
 import sys
 import time
+import webbrowser
 
 from io import BytesIO
-from niatools.settings import Settings
+from niatools.storage import ThreadingStorage
 from pathlib import Path
 from PIL import Image, ImageEnhance, ImageFilter
 from pygame.font import Font
 from threading import Thread, Lock
-from typing import Any, Optional, Literal
+from types import NoneType
+from typing import Any, Optional, Literal, NoReturn
 
 import helpers
+import neurokaraoke_hook as nkh
 import surfaces
 from customtypes import StationResponse
+
+CREATE_NO_WINDOW = 0x08000000
 
 fallbackData: StationResponse = {
         "cache": "",
@@ -100,6 +106,54 @@ fallbackData: StationResponse = {
         },
     }
 
+# --------------------------------
+# Classes relevant to playback
+class Player:
+    def __init__(self, app: Main, url: str, volume: float) -> None:
+        self.app = app
+        self.url = url
+        self._playing = False
+        self._player = None
+        self._volume = volume
+
+    @property
+    def executeable_path(self) -> str:
+        return os.path.join(app.working_dir, "ffmpeg", "windows" if os.name == "nt" else "linux", f"ffplay{".exe" if os.name == "nt" else ""}")
+
+    def start(self):
+        if self._player:
+            raise RuntimeError("The player is already running")
+        self._player = subprocess.Popen([self.executeable_path, "-nodisp", "-loglevel", "quiet", self.url, "-af", f"volume={self.volume}"], creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
+
+    def stop(self):
+        if self._player and self._player.poll() is None:
+            self._player.terminate()
+            try:
+                self._player.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._player.kill()
+        self._player = None
+    
+    def restart(self):
+        self.stop()
+        self.start()
+
+    @property
+    def is_playing(self) -> bool:
+        return bool(self._player)
+    
+    @property
+    def volume(self) -> float:
+        return self._volume
+    
+    @volume.setter
+    def volume(self, value: float):
+        self._volume = value
+        if self.is_playing:
+            self.restart()
+
+# --------------------------------
+# Surface Classes
 class LoadingText(surfaces.Resizing, surfaces.ScalingText):
     def __init__(self, parent: Optional[surfaces.SurfaceBase] = None, font: Optional[Font] = None):
         super().__init__(parent, "Loading...", (255, 255, 255), font)
@@ -280,8 +334,17 @@ class StreamTypeButton(surfaces.Cached, surfaces.Resizing, surfaces.TextButton):
     def onButtonClicked(self) -> None:
         self.app.stream_type = "hls" if self.app.stream_type == "mp3" else "mp3"
         self.text.text = self.app.stream_type
+
+        player_running = self.app.selected_player.is_playing
+        if player_running:
+            self.app.selected_player.stop()
+        self.app.selected_player = self.app.mp3_player if self.app.stream_type == "mp3" else self.app.hls_player
+        self.app.selected_player.volume = self.app.main_screen.main_container.row2.volume_slider.value
+        if player_running:
+            self.app.selected_player.start()
+
         self.redraw = True
-        logging.debug(f"Stream Type: {self.app.stream_type}")
+        logging.info(f"Stream type set to {self.app.stream_type}")
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -300,13 +363,16 @@ class PlayPauseButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
         pauseimage = pygame.image.load(os.path.join(self.app.data_dir, "mute.png"))
         self.playimage = surfaces.Image(playimage.get_rect(), None, playimage)
         self.pauseimage = surfaces.Image(pauseimage.get_rect(), None, pauseimage)
-        self.subsurface = self.playimage if self.app.playing else self.pauseimage
+        # the subsurface wll be replaced when the player object is loaded
 
     def onButtonClicked(self) -> None:
-        self.app.playing = not self.app.playing
-        self.subsurface = self.playimage if self.app.playing else self.pauseimage
+        self.app.selected_player.stop() if self.app.selected_player.is_playing else self.app.selected_player.start()
+        self.subsurface = self.playimage if self.app.selected_player.is_playing else self.pauseimage
         self.redraw = True
-        logging.debug(f"Playing: {self.app.playing}")
+        if self.app.selected_player.is_playing:
+            logging.info("Playback resumed")
+        else:
+            logging.info("Playback paused")
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -316,6 +382,9 @@ class PlayPauseButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
             self.parent.height
         )
     
+    def set_playing(self):
+        self.subsurface = self.playimage if self.app.selected_player.is_playing else self.pauseimage
+    
 class ControlsRow2(surfaces.Resizing):
     def __init__(self, parent: MainContainer):
         self.parent: MainContainer
@@ -324,6 +393,7 @@ class ControlsRow2(surfaces.Resizing):
         self.time_info = TimeInfo(self)
         self.open_btn = OpenButton(self)
         self.like_btn = LikeButton(self)
+        self.volume_slider = VolumeSlider(self)
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -352,7 +422,54 @@ class TimeInfo(surfaces.Resizing, surfaces.ScalingText):
         self.text = f"{int(currentplaytime//60)}:{int(currentplaytime%60):02} / {int(self.app.data.get("now_playing").get("duration")//60)}:{int(self.app.data.get("now_playing").get("duration")%60):02}"
         return super().update()
 
+class VolumeSlider(surfaces.Cached, surfaces.Resizing):
+    CURSOR = pygame.SYSTEM_CURSOR_HAND
+
+    def __init__(self, parent: ControlsRow2):
+        self.parent: ControlsRow2
+        self.app: Main
+        super().__init__(parent)
+        self.value = self.app.settings.get("volume")
+        self.bar_color = self.app.settings.get("progress_bar_color")
+        self.selector_color = self.app.settings.get("button_color")
+        self._listener_added = False
+        self._clicked = False
+
+    def render(self):
+        bar_rect = pygame.Rect(0, self.height*4/10, self.width, self.height/5)
+        pygame.draw.rect(self.surface, self.bar_color, bar_rect, border_radius=self.height//10)
+        selector_rect = pygame.Rect(self.value*(self.width-self.height/5), 0, self.height/5, self.height)
+        pygame.draw.rect(self.surface, self.selector_color, selector_rect, border_radius=self.height//10)
+    
+    def update(self) -> bool:
+        self.redraw = self.redraw or self._clicked
+        if not self._listener_added:
+            self._listener_added = True
+            self.app.main_screen.addEventHandler(self.eventHandler) # The listener must be added delayed to avoid a crash
+        return super().update()
+    
+    def eventHandler(self, events: list[pygame.event.Event]):
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.collide(*event.pos):
+                self._clicked = True
+            elif event.type == pygame.MOUSEMOTION and self._clicked:
+                x = (event.pos[0] - self.x) / self.width
+                self.value = min(1, max(0, x))
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self._clicked = False
+                self.app.selected_player.volume = self.value
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.parent.time_info.width + self.app.button_padding,
+            0,
+            self.parent.like_btn.rect.x - self.parent.time_info.width - self.app.button_padding*2,
+            self.parent.height
+        )
+
 class LikeButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
+    CURSOR = pygame.SYSTEM_CURSOR_NO
+
     def __init__(self, parent: ControlsRow2):
         self.parent: ControlsRow2
         self.app: Main
@@ -397,7 +514,18 @@ class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
     
     def onButtonClicked(self) -> None:
         link = self.app.settings.get("open_link")%self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")
+        webbrowser.open(link)
         logging.info(f"Opening {link}")
+
+# --------------------------------
+# Main App
+
+def cleanup(ret: NoneType, self: Main) -> NoReturn:
+    if not self.__dict__.get("selected_player") is None:
+        self.selected_player.stop()
+        self.settings.save()
+    del self
+    sys.exit()
 
 class Main(surfaces.ResizeableApp):
     @helpers.log_critical
@@ -407,9 +535,15 @@ class Main(surfaces.ResizeableApp):
         logging.info("Initializing")
 
         self.data_dir: str = os.path.join(Path.home(), "neuro_21_station_player")
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
-        self.settings: Settings = Settings(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), isGlobal=True)
+        self.settings: ThreadingStorage = ThreadingStorage(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), autosave_interval=1800, total=True)
 
+        logging.debug(f"Settings: {self.settings._storage}")
+
+        self.nkh_login_lock = Lock()
+        self.login_nkh = False
         self.init_lock = Lock()
         self.init_lock.acquire()
         self.init_thread = Thread(target=self.init, daemon=True).start()
@@ -418,39 +552,65 @@ class Main(surfaces.ResizeableApp):
         self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
         super().__init__(self.settings.get("size"), LoadingScreen)
 
-        nkh.init()
-
-        self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
-        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
-        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
-        self.playing = self.settings.get("autoplay")
-        self.stream_type = self.settings.get("stream_type")
-        self.data_reload_cooldown = 0
-        self.data_reloaded = False
-        self.image_reloaded = False
-        self.song_liked = False
         self.initialized = False
         self._screen_lock = Lock()
         self._image_lock = Lock()
 
         self.raw_image: Image.Image
-        self.converted_image = pygame.Surface((1, 1))
-        self.blurred_image = pygame.Surface((1, 1))
 
-        self.no_menu_screen = NoMenuScreen(self)
-        self.main_screen = MainScreen(self)
-
-        self.bg_image = BgImage(self.main_screen)
         self.init_lock.release()
         logging.info("Main thread init finished")
 
     @helpers.log_critical
     def init(self):
+        nkh.init(self.settings, autologin=False)
+
+        if not nkh.logged_in:
+            self.nkh_login_lock.acquire()
+            self.login_nkh = True
+
+        self.data_reload_cooldown = 0
+        self.data_reloaded = False
+        self.image_reloaded = False
+        self.song_liked = False
+
+        # Load Data
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
-        if not self.refresh_data():
+        if not self.refresh_data(fully_initialized=False):
             self.data = fallbackData
-        self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
-        logging.debug(self.favourites)
+
+        # Load Favourites
+        with self.nkh_login_lock:
+            self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
+            logging.debug(f"All liked songs: {self.favourites}")
+
+        # Copy Required Files
+        for name in ["mute.png", "unmute.png", "open.png", "liked.png", "unliked.png"]:
+            if not os.path.exists(os.path.join(self.data_dir, name)):
+                shutil.copyfile(os.path.join(self.working_dir, "data", name), os.path.join(self.data_dir, name))
+
+        # variables
+        self.content_padding = self.surface.get_width()*self.settings.get("content_padding")
+        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
+        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
+        self.stream_type = self.settings.get("stream_type")
+
+        # Surfaces
+        self.converted_image = pygame.Surface((1, 1))
+        self.blurred_image = pygame.Surface((1, 1))
+        self.no_menu_screen = NoMenuScreen(self)
+        self.main_screen = MainScreen(self)
+        self.bg_image = BgImage(self.main_screen)
+
+        # Load Players
+        self.mp3_player = Player(self, self.data.get("station").get("listen_url"), self.main_screen.main_container.row2.volume_slider.value)
+        self.hls_player = Player(self, self.data.get("station").get("hls_url"), self.main_screen.main_container.row2.volume_slider.value)
+        self.selected_player = self.mp3_player if self.stream_type == "mp3" else self.hls_player
+        if self.settings.get("autoplay"):
+            self.selected_player.start()
+        self.main_screen.main_container.row1.playpause_btn.set_playing() # set the proper symbol on the play/pause button
+
+        # Finish init
         self.initialized = True
         with self.init_lock:
             with self._screen_lock:
@@ -468,7 +628,7 @@ class Main(surfaces.ResizeableApp):
         return BytesIO(response.content)
     
     @helpers.log_error
-    def refresh_data(self) -> Literal[True]:
+    def refresh_data(self, fully_initialized: bool = True) -> Literal[True]:
         """Refreshes the data from the station"""
         old_songid = self.data.get("now_playing").get("song").get("id") if self.data else None
         old_art = self.data.get("now_playing").get("song").get("art") if self.data else None
@@ -479,7 +639,10 @@ class Main(surfaces.ResizeableApp):
         if old_art != self.data.get("now_playing").get("song").get("art"):
             with self._image_lock:
                 self.raw_image = Image.open(self.fetch_image(self.data.get("now_playing").get("song").get("art")))
-        self.image_reloaded = True
+                self.image_reloaded = True
+        if fully_initialized and self.selected_player.is_playing:
+            nkh.send_playcount(str(self.data.get("now_playing").get("song").get("custom_fields").get("songId")))
+            logging.debug("Playcount request sent!")
         return True
 
     def reload_data_tick(self):
@@ -491,6 +654,10 @@ class Main(surfaces.ResizeableApp):
         with self._screen_lock:
             super().tick()
         if not self.initialized:
+            if self.login_nkh:
+                self.login_nkh = False
+                nkh.login()
+                self.nkh_login_lock.release()
             return
         if self.image_reloaded and self._image_lock.acquire(blocking=False):
             logging.debug("Image reload recieved")
@@ -513,6 +680,16 @@ class Main(surfaces.ResizeableApp):
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
 
+    @helpers.cleanup(cleanup)
+    @helpers.log_critical
+    def run(self):
+        super().run()
+    
+    @helpers.cleanup(cleanup)
+    def quit(self):
+        pygame.quit()
+
+class MainResizeable(Main, surfaces.ResizeableApp):
     def onResize(self, size: tuple[int, int], width: int, height: int) -> None:
         self.content_padding = width*self.settings.get("content_padding")
         self.controls_size = self.surface.get_width()*self.settings.get("controls_size")

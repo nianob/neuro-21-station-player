@@ -33,7 +33,8 @@ class SurfaceBase(ABC):
         self.render()
         for surface in self.subsurfaces:
             self.surface.blit(surface.surface, surface.rect)
-        pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, *self.size), 1)
+        if self.app and self.app.show_hitboxes:
+            pygame.draw.rect(self.surface, (255, 0, 0), (0, 0, *self.size), 1)
     
     def render(self) -> None:...
     
@@ -261,6 +262,7 @@ class Screen(SurfaceBase):
     def __init__(self, app: App):
         super().__init__(app.surface.get_rect())
         self._app: App = app
+        self._event_handlers: list[Callable[[list[pygame.event.Event]], None]] = []
 
     def draw(self, surface: pygame.Surface) -> None:
         """Draws this screen onto a surface
@@ -288,6 +290,9 @@ class Screen(SurfaceBase):
                 self.app.quit()
             elif event.type == pygame.VIDEORESIZE and isinstance(self.app, ResizeableApp):
                 self.app.onResize(event.size, event.w, event.h)
+        
+        for eventHandler in self._event_handlers:
+            eventHandler(events)
     
     def onKeypress(self, key: int) -> None:
         """Handles all keypresses"""
@@ -305,13 +310,16 @@ class Screen(SurfaceBase):
     def app(self) -> App:
         return self._app
     
+    def addEventHandler(self, handler: Callable[[list[pygame.event.Event]], None]):
+        self._event_handlers.append(handler)
+    
 # ----------------------------------------------------------------
 # The base class for any any app using this library
 class App(ABC):
     WINDOW_FLAGS = 0
     FPS = 60
 
-    def __init__(self, window_size: Coordinate, starting_screen: type[Screen], *args, **kwargs) -> None:
+    def __init__(self, window_size: Coordinate, starting_screen: type[Screen], *args, show_hitboxes: Optional[bool] = None, **kwargs) -> None:
         """Initialze the App
         
         Args:
@@ -324,6 +332,7 @@ class App(ABC):
         if not pygame.font.get_init():
             pygame.font.init()
         self.surface: pygame.Surface = pygame.display.set_mode(window_size, self.WINDOW_FLAGS)
+        self.show_hitboxes: bool = show_hitboxes if not show_hitboxes is None else "--hitboxes" in sys.argv
         self._currentScreen: Screen
         self._clock = pygame.time.Clock()
         starting_screen(self, *args, **kwargs).show()
@@ -502,5 +511,3 @@ if __name__ == "__main__":
     
     app = ExampleApp((800, 800))
     app.run()
-
-import logging

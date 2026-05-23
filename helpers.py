@@ -5,10 +5,11 @@ import tkinter as tk
 import traceback
 
 from tkinter import messagebox
-from typing import Callable, TypeVar, ParamSpec, Optional, NoReturn, Optional
+from typing import Callable, TypeVar, ParamSpec, Optional, Optional, Concatenate
 
 
 _T = TypeVar("_T")
+_T2 = TypeVar("_T2")
 _P = ParamSpec("_P")
 
 
@@ -68,9 +69,9 @@ class _ColourFormatter(logging.Formatter):
         record.exc_text = None
         return output
     
-def log_critical(func: Callable[_P, _T]) -> Callable[_P, _T|NoReturn]:
+def log_critical(func: Callable[_P, _T]) -> Callable[_P, Optional[_T]]:
     """Logs crashes and exits"""
-    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T|NoReturn:
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Optional[_T]:
         try:
             return func(*args, **kwargs)
         except Exception as e:
@@ -85,7 +86,6 @@ def log_critical(func: Callable[_P, _T]) -> Callable[_P, _T|NoReturn]:
                 detail='\n'.join(message.splitlines()[-5:])
                 )
             root.destroy()
-            sys.exit()
     return wrapper
 
 def log_error(func: Callable[_P, _T]) -> Callable[_P, Optional[_T]]:
@@ -98,3 +98,10 @@ def log_error(func: Callable[_P, _T]) -> Callable[_P, Optional[_T]]:
             message = e.__class__.__name__ + "\n\n" + message
             logging.error(message)
     return wrapper
+
+def cleanup(cleaner: Callable[Concatenate[_T, _P], _T2]) -> Callable[[Callable[_P, _T]], Callable[_P, _T2]]:
+    def decorator(func: Callable[_P, _T]) -> Callable[_P, _T2]:
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T2:
+            return cleaner(func(*args, **kwargs), *args, **kwargs)
+        return wrapper
+    return decorator
