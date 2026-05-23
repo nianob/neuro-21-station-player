@@ -457,7 +457,7 @@ class VolumeSlider(surfaces.Cached, surfaces.Resizing):
             elif event.type == pygame.MOUSEMOTION and self._clicked:
                 x = (event.pos[0] - self.x) / self.width
                 self.value = min(1, max(0, x))
-            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self._clicked:
                 self._clicked = False
                 self.app.selected_player.volume = self.value
 
