@@ -11,11 +11,13 @@ from niatools.storage import StorageBase
 settings: StorageBase
 _settings_lock = Lock()
 _settings_lock.acquire()
+logged_in: bool = False
 
 # --------------------------------------------------------------------------------
 # Internals
 
 def _webview_on_loaded(window: webview.Window) -> None:
+    global logged_in
     url = window.get_current_url()
     if not url:
         return
@@ -26,6 +28,7 @@ def _webview_on_loaded(window: webview.Window) -> None:
     with _settings_lock:
         settings.set("nkh_token", match[1])
         settings.save()
+    logged_in = True
 
 def _send_request(method: str, url: str) -> str:
     with _settings_lock:
@@ -42,13 +45,15 @@ def _send_json_request(method: str, url: str) -> Any:
 # --------------------------------------------------------------------------------
 # Public Functions
 
-def init(storage: StorageBase):
-    global settings
+def init(storage: StorageBase, autologin: bool = True):
+    global settings, logged_in
     if __name__ != "__main__":
         settings = storage
     _settings_lock.release()
-    if not storage.get("nkh_token"):
+    if not storage.get("nkh_token") and autologin:
         login()
+    elif storage.get("nkh_token"):
+        logged_in = True
 
 def login() -> None:
     """Opens a window to log in into neurokaraoke.com via discord"""

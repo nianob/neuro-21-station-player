@@ -523,6 +523,7 @@ class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
 def cleanup(ret: NoneType, self: Main) -> NoReturn:
     if not self.__dict__.get("selected_player") is None:
         self.selected_player.stop()
+        self.settings.save()
     del self
     sys.exit()
 
@@ -534,11 +535,15 @@ class Main(surfaces.App):
         logging.info("Initializing")
 
         self.data_dir: str = os.path.join(Path.home(), "neuro_21_station_player")
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
         self.settings: ThreadingStorage = ThreadingStorage(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), autosave_interval=1800, total=True)
 
         logging.debug(f"Settings: {self.settings._storage}")
 
+        self.nkh_login_lock = Lock()
+        self.login_nkh = False
         self.init_lock = Lock()
         self.init_lock.acquire()
         self.init_thread = Thread(target=self.init, daemon=True).start()
@@ -558,7 +563,11 @@ class Main(surfaces.App):
 
     @helpers.log_critical
     def init(self):
-        nkh.init(self.settings)
+        nkh.init(self.settings, autologin=False)
+
+        if not nkh.logged_in:
+            self.nkh_login_lock.acquire()
+            self.login_nkh = True
 
         self.data_reload_cooldown = 0
         self.data_reloaded = False
@@ -571,8 +580,9 @@ class Main(surfaces.App):
             self.data = fallbackData
 
         # Load Favourites
-        self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
-        logging.debug(f"All liked songs: {self.favourites}")
+        with self.nkh_login_lock:
+            self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
+            logging.debug(f"All liked songs: {self.favourites}")
 
         # Copy Required Files
         for name in ["mute.png", "unmute.png", "open.png", "liked.png", "unliked.png"]:
@@ -644,6 +654,10 @@ class Main(surfaces.App):
         with self._screen_lock:
             super().tick()
         if not self.initialized:
+            if self.login_nkh:
+                self.login_nkh = False
+                nkh.login()
+                self.nkh_login_lock.release()
             return
         if self.image_reloaded and self._image_lock.acquire(blocking=False):
             logging.debug("Image reload recieved")
