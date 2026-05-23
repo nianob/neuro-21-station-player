@@ -1,5 +1,6 @@
 from __future__ import annotations
 import datetime
+import copy
 import json
 import logging
 import os
@@ -550,7 +551,10 @@ class Main(surfaces.ResizeableApp):
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
         self.settings: ThreadingStorage = ThreadingStorage(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), autosave_interval=1800, total=True)
 
-        logging.debug(f"Settings: {self.settings._storage}")
+        modified_settings = copy.deepcopy(self.settings._storage)
+        if "nkh_token" in modified_settings.keys():
+            modified_settings["nkh_token"] = "[Redacted]"
+        logging.debug(f"Settings: {modified_settings}")
 
         self.nkh_login_lock = Lock()
         self.login_nkh = False
