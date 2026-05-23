@@ -399,7 +399,7 @@ class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
         link = self.app.settings.get("open_link")%self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")
         logging.info(f"Opening {link}")
 
-class Main(surfaces.App):
+class Main(surfaces.ResizeableApp):
     @helpers.log_critical
     def __init__(self) -> None:
         self.data: StationResponse
@@ -513,18 +513,16 @@ class Main(surfaces.App):
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
 
-    @helpers.log_critical
-    def run(self):
-        super().run()
-
-class MainResizeable(Main, surfaces.ResizeableApp):
     def onResize(self, size: tuple[int, int], width: int, height: int) -> None:
         self.content_padding = width*self.settings.get("content_padding")
         self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
         self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
         return super().onResize(size, width, height)
 
+    @helpers.log_critical
+    def run(self):
+        super().run()
+
 if __name__ == "__main__":
-    helpers.setup_logging()
-    app = MainResizeable() if "--resizeable" in sys.argv else Main()
-    app.run()
+    helpers.setup_logging(file=os.path.join(Path.home(), "neuro_21_station_player", "latest.log"), debug=True)
+    Main().run()

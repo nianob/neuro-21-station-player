@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import tkinter as tk
 import traceback
@@ -11,14 +12,20 @@ _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
 
-def setup_logging(debug: Optional[bool] = None):
+def setup_logging(file: Optional[str] = None, debug: Optional[bool] = None):
     if debug is None:
         debug = "--debug" in sys.argv
+    if file and not os.path.exists(os.path.dirname(file)):
+        os.makedirs(os.path.dirname(file))
     logger = logging.getLogger()
     handler = logging.StreamHandler()
     handler.setFormatter(_ColourFormatter())
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
     logger.addHandler(handler)
+    if file:
+        fileHandler = logging.FileHandler(file, "w", "UTF-8")
+        fileHandler.setFormatter(_ColourFormatter())
+        logger.addHandler(fileHandler)
 
 
 # THIS CLASS IS FROM DISCORD.PY (https://github.com/Rapptz/discord.py)
