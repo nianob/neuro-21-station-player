@@ -4,6 +4,7 @@ import sys
 import tkinter as tk
 import traceback
 
+from pathlib import Path
 from tkinter import messagebox
 from typing import Callable, TypeVar, ParamSpec, Optional, Optional, Concatenate
 
@@ -25,7 +26,7 @@ def setup_logging(file: Optional[str] = None, debug: Optional[bool] = None):
     logger.addHandler(handler)
     if file:
         fileHandler = logging.FileHandler(file, "w", "UTF-8")
-        fileHandler.setFormatter(_ColourFormatter())
+        fileHandler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s  %(message)s"))
         logger.addHandler(fileHandler)
 
 
@@ -83,7 +84,7 @@ def log_critical(func: Callable[_P, _T]) -> Callable[_P, Optional[_T]]:
             messagebox.showerror(
                 "Neuro 21 Station Player Crashed!",
                 "Neuro 21 Station Player encountered a critical exception and cannot continue.",
-                detail='\n'.join(message.splitlines()[-5:])
+                detail=f"A Detailed Report will be generated in the following folder: {os.path.join(Path.home(), "neuro_21_station_player")}"
                 )
             root.destroy()
     return wrapper

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime
 import json
 import logging
 import os
@@ -118,7 +119,7 @@ class Player:
 
     @property
     def executeable_path(self) -> str:
-        return os.path.join(app.working_dir, "ffmpeg", "windows" if os.name == "nt" else "linux", f"ffplay{".exe" if os.name == "nt" else ""}")
+        return os.path.join(self.app.working_dir, "ffmpeg", "windows" if os.name == "nt" else "linux", f"ffplay{".exe" if os.name == "nt" else ""}")
 
     def start(self):
         if self._player:
@@ -527,6 +528,15 @@ def cleanup(ret: NoneType, self: Main) -> NoReturn:
     del self
     sys.exit()
 
+def cleanup_crash(ret: NoneType, self: Main) -> NoReturn:
+    try:
+        folder = os.path.join(Path.home(), "neuro_21_station_player")
+        shutil.copyfile(os.path.join(folder, "latest.log"), os.path.join(folder, f"crash_{datetime.datetime.now().strftime("%d-%m-%Y_%H-%M-%S")}.log"))
+    except Exception as e:
+        logging.error("Could not save Crash Report!")
+    finally:
+        cleanup(ret, self)
+
 class Main(surfaces.ResizeableApp):
     @helpers.log_critical
     def __init__(self) -> None:
@@ -680,7 +690,13 @@ class Main(surfaces.ResizeableApp):
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
 
-    @helpers.cleanup(cleanup)
+    def onResize(self, size: tuple[int, int], width: int, height: int) -> None:
+        self.content_padding = width*self.settings.get("content_padding")
+        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
+        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
+        return super().onResize(size, width, height)
+    
+    @helpers.cleanup(cleanup_crash)
     @helpers.log_critical
     def run(self):
         super().run()
@@ -688,17 +704,6 @@ class Main(surfaces.ResizeableApp):
     @helpers.cleanup(cleanup)
     def quit(self):
         pygame.quit()
-
-class MainResizeable(Main, surfaces.ResizeableApp):
-    def onResize(self, size: tuple[int, int], width: int, height: int) -> None:
-        self.content_padding = width*self.settings.get("content_padding")
-        self.controls_size = self.surface.get_width()*self.settings.get("controls_size")
-        self.button_padding = self.surface.get_width()*self.settings.get("button_padding")
-        return super().onResize(size, width, height)
-
-    @helpers.log_critical
-    def run(self):
-        super().run()
 
 if __name__ == "__main__":
     helpers.setup_logging(file=os.path.join(Path.home(), "neuro_21_station_player", "latest.log"), debug=True)
