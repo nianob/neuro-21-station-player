@@ -565,6 +565,8 @@ class Main(surfaces.ResizeableApp):
         pygame.font.init()
         self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
         super().__init__(self.settings.get("size"), LoadingScreen)
+        pygame.display.set_caption("Neuro 21 Station Player - Loading")
+        pygame.display.set_icon(pygame.image.load(os.path.join(self.working_dir, "data", "icon.ico")))
 
         self.initialized = False
         self._screen_lock = Lock()
@@ -690,6 +692,7 @@ class Main(surfaces.ResizeableApp):
             self.song_liked = self.data.get("now_playing").get("song").get("custom_fields").get("songId") in self.favourites
             logging.debug(f"Song liked: {self.song_liked} (ID: {self.data.get("now_playing").get("song").get("custom_fields").get("songId")})")
             self.main_screen.main_container.row2.like_btn.refresh()
+            pygame.display.set_caption(f"{self.data.get("station").get("name")} - {self.data.get("now_playing").get("song").get("title")}")
         if self.data.get("playing_next").get("played_at")+1 < time.time() and self.data_reload_cooldown < time.time():
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
