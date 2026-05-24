@@ -1,0 +1,8 @@
+niatools @ https://github.com/nianob/niatools/releases/download/v1.2.1/niatools-1.2.1-py3-none-any.whl
+Pillow
+pygame
+pywebview
+regex
+Requests
+deprecation
+pyinstaller
