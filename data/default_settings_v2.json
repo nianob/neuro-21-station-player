@@ -17,5 +17,8 @@
     "button_text_color": [0, 0, 0],
     "open_link": "https://neurokaraoke.com/song/%s",
     "referal_url": "https://twinskaraoke.com/",
-    "volume": 0.15
+    "volume": 0.15,
+    "reduce_fps": "hidden",
+    "fps": 60,
+    "reduced_fps": 1
 }

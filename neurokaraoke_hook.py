@@ -32,13 +32,13 @@ def _webview_on_loaded(window: webview.Window) -> None:
 
 def _send_request(method: str, url: str) -> str:
     with _settings_lock:
-        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
+        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", ""), "Origin": settings.get("referal_url")[:-1]})
     response.raise_for_status()
     return response.content.decode("UTF-8")
 
 def _send_json_request(method: str, url: str) -> Any:
     with _settings_lock:
-        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", "")+"/", "Origin": settings.get("referal_url")})
+        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", ""), "Origin": settings.get("referal_url")[:-1]})
     response.raise_for_status()
     return response.json()
 
@@ -70,3 +70,7 @@ def send_playcount(song_id: str) -> str:
 def get_favourites() -> Any:
     """Gets all favourite songs of the user"""
     return _send_json_request("GET", "https://api.neurokaraoke.com/api/user/favorites")
+
+def toggle_favourite(song_id: str):
+    """Toggles the favourite status"""
+    return _send_request("PUT", f"https://api.neurokaraoke.com/api/user/favorites/{song_id}")

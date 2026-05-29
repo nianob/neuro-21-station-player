@@ -470,8 +470,6 @@ class VolumeSlider(surfaces.Cached, surfaces.Resizing):
         )
 
 class LikeButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
-    CURSOR = pygame.SYSTEM_CURSOR_NO
-
     def __init__(self, parent: ControlsRow2):
         self.parent: ControlsRow2
         self.app: Main
@@ -483,7 +481,15 @@ class LikeButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
         self.subsurface = self.likedimage if self.app.song_liked else self.notlikedimage
 
     def onButtonClicked(self) -> None:
-        self.redraw = True
+        logging.info("Song like status is being toggled")
+        Thread(target=self.likeThread).start()
+        
+    def likeThread(self):
+        nkh.toggle_favourite(self.app.data.get("now_playing").get("song").get("custom_fields").get("songId", ""))
+        self.app.reload_favourites()
+        self.app.song_liked = self.app.data.get("now_playing").get("song").get("custom_fields").get("songId") in self.app.favourites
+        logging.debug(f"Song liked: {self.app.song_liked} (ID: {self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")})")
+        self.refresh()
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -585,6 +591,7 @@ class Main(surfaces.ResizeableApp):
             self.nkh_login_lock.acquire()
             self.login_nkh = True
 
+        self.FPS = self.settings.get("fps")
         self.data_reload_cooldown = 0
         self.data_reloaded = False
         self.image_reloaded = False
@@ -597,8 +604,8 @@ class Main(surfaces.ResizeableApp):
 
         # Load Favourites
         with self.nkh_login_lock:
-            self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
-            logging.debug(f"All liked songs: {self.favourites}")
+            self.reload_favourites()
+        logging.debug(f"All liked songs: {self.favourites}")
 
         # Copy Required Files
         for name in ["mute.png", "unmute.png", "open.png", "liked.png", "unliked.png"]:
@@ -618,6 +625,9 @@ class Main(surfaces.ResizeableApp):
         self.main_screen = MainScreen(self)
         self.bg_image = BgImage(self.main_screen)
 
+        self.no_menu_screen.addEventHandler(self.fps_reducer)
+        self.main_screen.addEventHandler(self.fps_reducer)
+
         # Load Players
         self.mp3_player = Player(self, self.data.get("station").get("listen_url"), self.main_screen.main_container.row2.volume_slider.value)
         self.hls_player = Player(self, self.data.get("station").get("hls_url"), self.main_screen.main_container.row2.volume_slider.value)
@@ -632,6 +642,24 @@ class Main(surfaces.ResizeableApp):
             with self._screen_lock:
                 self.main_screen.show()
             logging.info("Initialization Complete")
+    
+    def fps_reducer(self, events: list[pygame.event.Event]):
+        match self.settings.get("reduce_fps"):
+            case "hidden":
+                for event in events:
+                    if event.type == pygame.WINDOWHIDDEN:
+                        self.FPS = self.settings.get("reduced_fps")
+                    elif event.type == pygame.WINDOWSHOWN:
+                        self.FPS = self.settings.get("fps")
+            case "unfocused":
+                for event in events:
+                    if event.type == pygame.WINDOWFOCUSLOST:
+                        self.FPS = self.settings.get("reduced_fps")
+                    elif event.type == pygame.WINDOWFOCUSGAINED:
+                        self.FPS = self.settings.get("fps")
+
+    def reload_favourites(self):
+        self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
 
     def fetch_data(self) -> StationResponse:
         response = requests.get(self.settings.get("data_url"))
@@ -689,6 +717,7 @@ class Main(surfaces.ResizeableApp):
             self.data_reloaded = False
             self.main_screen.main_container.title.redraw = True
             self.main_screen.main_container.row2.open_btn.enabled = bool(self.data.get("now_playing").get("song").get("custom_fields").get("songId"))
+            self.main_screen.main_container.row2.like_btn.enabled = self.main_screen.main_container.row2.open_btn.enabled
             self.song_liked = self.data.get("now_playing").get("song").get("custom_fields").get("songId") in self.favourites
             logging.debug(f"Song liked: {self.song_liked} (ID: {self.data.get("now_playing").get("song").get("custom_fields").get("songId")})")
             self.main_screen.main_container.row2.like_btn.refresh()
