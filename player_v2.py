@@ -557,10 +557,8 @@ class Main(surfaces.ResizeableApp):
         self.working_dir: str = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
         self.settings: ThreadingStorage = ThreadingStorage(os.path.join(self.data_dir, "settings_v2.json"), os.path.join(self.working_dir, "data", "default_settings_v2.json"), autosave_interval=1800, total=True)
 
-        modified_settings = copy.deepcopy(self.settings._storage)
-        if "nkh_token" in modified_settings.keys():
-            modified_settings["nkh_token"] = "[Redacted]"
-        logging.debug(f"Settings: {modified_settings}")
+        self.remove_legacy_settings()
+        logging.debug(f"Settings: {self.settings._storage}")
 
         self.nkh_login_lock = Lock()
         self.login_nkh = False
@@ -642,6 +640,11 @@ class Main(surfaces.ResizeableApp):
             with self._screen_lock:
                 self.main_screen.show()
             logging.info("Initialization Complete")
+    
+    def remove_legacy_settings(self):
+        if self.settings.get("nkh_token"):
+            self.settings._storage.pop("nkh_token") # we use _storage.pop() until niatools properly supports removing items from storage
+            logging.info("Removed legacy setting: nkh_token")
     
     def fps_reducer(self, events: list[pygame.event.Event]):
         match self.settings.get("reduce_fps"):

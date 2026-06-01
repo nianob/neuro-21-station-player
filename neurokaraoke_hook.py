@@ -1,3 +1,4 @@
+import keyring
 import regex
 import requests
 import webview
@@ -12,12 +13,13 @@ settings: StorageBase
 _settings_lock = Lock()
 _settings_lock.acquire()
 logged_in: bool = False
+token = None
 
 # --------------------------------------------------------------------------------
 # Internals
 
 def _webview_on_loaded(window: webview.Window) -> None:
-    global logged_in
+    global logged_in, token
     url = window.get_current_url()
     if not url:
         return
@@ -26,19 +28,19 @@ def _webview_on_loaded(window: webview.Window) -> None:
         return
     window.destroy()
     with _settings_lock:
-        settings.set("nkh_token", match[1])
-        settings.save()
+        keyring.set_password("Neuro 21 Station Player", "token", match[1])
+        token = match[1]
     logged_in = True
 
 def _send_request(method: str, url: str) -> str:
     with _settings_lock:
-        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", ""), "Origin": settings.get("referal_url")[:-1]})
+        response = requests.request(method, url, headers={"authorization": f"Bearer {token}", "Referer": settings.get("referal_url", ""), "Origin": settings.get("referal_url")[:-1]})
     response.raise_for_status()
     return response.content.decode("UTF-8")
 
 def _send_json_request(method: str, url: str) -> Any:
     with _settings_lock:
-        response = requests.request(method, url, headers={"authorization": f"Bearer {settings.get("nkh_token")}", "Referer": settings.get("referal_url", ""), "Origin": settings.get("referal_url")[:-1]})
+        response = requests.request(method, url, headers={"authorization": f"Bearer {token}", "Referer": settings.get("referal_url", ""), "Origin": settings.get("referal_url")[:-1]})
     response.raise_for_status()
     return response.json()
 
@@ -46,13 +48,13 @@ def _send_json_request(method: str, url: str) -> Any:
 # Public Functions
 
 def init(storage: StorageBase, autologin: bool = True):
-    global settings, logged_in
-    if __name__ != "__main__":
-        settings = storage
+    global settings, logged_in, token
+    settings = storage
+    token = keyring.get_password("Neuro 21 Station Player", "token")
     _settings_lock.release()
-    if not storage.get("nkh_token") and autologin:
+    if not token and autologin:
         login()
-    elif storage.get("nkh_token"):
+    elif token:
         logged_in = True
 
 def login() -> None:
