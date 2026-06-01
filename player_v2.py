@@ -649,14 +649,18 @@ class Main(surfaces.ResizeableApp):
                 for event in events:
                     if event.type == pygame.WINDOWHIDDEN:
                         self.FPS = self.settings.get("reduced_fps")
+                        logging.debug(f"FPS set to {self.FPS}")
                     elif event.type == pygame.WINDOWSHOWN:
                         self.FPS = self.settings.get("fps")
+                        logging.debug(f"FPS set to {self.FPS}")
             case "unfocused":
                 for event in events:
                     if event.type == pygame.WINDOWFOCUSLOST:
                         self.FPS = self.settings.get("reduced_fps")
+                        logging.debug(f"FPS set to {self.FPS}")
                     elif event.type == pygame.WINDOWFOCUSGAINED:
                         self.FPS = self.settings.get("fps")
+                        logging.debug(f"FPS set to {self.FPS}")
 
     def reload_favourites(self):
         self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
