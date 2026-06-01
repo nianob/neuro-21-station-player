@@ -5,7 +5,7 @@ A small and resource-friendly player for the [Neuro 21 Station](https://radio.tw
 - choosing between the mp3 and hls stream type
 - muting/unmuting the stream
 - changing the volume
-- seeing, if the song is liked on https://neurokaraoke.com
+- liking the currently playing song on https://neurokaraoke.com
 - opening the song directly on https://neurokaraoke.com
 - hitting F1 hides the menu
 
