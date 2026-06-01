@@ -36,7 +36,7 @@ A small and resource-friendly player for the [Neuro 21 Station](https://radio.tw
 - Run `build.bat` on Windows or `build.sh` on linux
 
 ## Detailed breakdown of settings:
-All of the settings are saved in `[Your User Directory]/neuro_21_station_player/settings_v2.json`. When any setting from your settings file it will be reset automatically.
+All of the settings are saved in `[Your User Directory]/neuro_21_station_player/settings_v2.json`. When you delete any setting from your settings file it will be reset automatically.
 
  Setting | Default | Description
  -----:  | :-----: | :----------
