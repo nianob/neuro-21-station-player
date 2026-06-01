@@ -21,7 +21,6 @@ A small and resource-friendly player for the [Neuro 21 Station](https://radio.tw
 
 - A proper settings menu
 - Discord Integration
-- Liking/Unliking songs directly in the app
 
 ## How to run it directly
 
