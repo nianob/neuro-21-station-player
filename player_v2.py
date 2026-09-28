@@ -1,10 +1,10 @@
 from __future__ import annotations
 import datetime
-import copy
 import json
 import logging
 import os
 import pygame
+import pypresence
 import requests
 import shutil
 import subprocess
@@ -117,6 +117,8 @@ class Player:
         self._playing = False
         self._player = None
         self._volume = volume
+        self._watchdog_stop = False
+        self._watchdog_running = False
 
     @property
     def executeable_path(self) -> str:
@@ -125,9 +127,11 @@ class Player:
     def start(self):
         if self._player:
             raise RuntimeError("The player is already running")
-        self._player = subprocess.Popen([self.executeable_path, "-nodisp", "-loglevel", "quiet", self.url, "-af", f"volume={self.volume}"], creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
+        self._player = subprocess.Popen([self.executeable_path, "-nodisp", "-autoexit", "-rw_timeout", "10000000", "-loglevel", "quiet", self.url, "-af", f"volume={self.volume}"], creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
+        self._startWatchdog()
 
-    def stop(self):
+    def stop(self, stop_watchdog: bool = True):
+        self._watchdog_stop = stop_watchdog
         if self._player and self._player.poll() is None:
             self._player.terminate()
             try:
@@ -137,7 +141,7 @@ class Player:
         self._player = None
     
     def restart(self):
-        self.stop()
+        self.stop(stop_watchdog=False)
         self.start()
 
     @property
@@ -153,6 +157,120 @@ class Player:
         self._volume = value
         if self.is_playing:
             self.restart()
+
+    def _startWatchdog(self):
+        self._watchdog_stop = False
+        if self._watchdog_running:
+            logging.debug("Didn't start watchdog: Already Running")
+            return
+        self._watchdog_running = True
+        Thread(target=self._watchdog, daemon=True).start()
+
+    def _watchdog(self):
+        logging.debug("Watchdog Started.")
+        while not self._watchdog_stop:
+            if not self._player:
+                continue
+            if self._player.poll() is not None:
+                self.restart()
+                logging.debug("Watchdog: Restarted Stream")
+            time.sleep(1)
+        self._watchdog_running = False
+        logging.debug("Watchdog Stopped.")
+
+# --------------------------------
+# Discord Precence
+class Precence:
+    def __init__(self, app: Main):
+        logging.debug("Presence Loading")
+        self.app = app
+        self._allow_update_at: float = 0
+        self.update_scheduled: bool = False
+        self.active: bool = False
+        self._presence = pypresence.presence.Presence(self.app.settings.get("discord_client_id"))
+
+    @helpers.log_error
+    def connect(self):
+        self._presence.connect()
+        self.active = True
+        logging.debug("Presence Connected Successfully")
+
+    @property
+    def update_allowed_in(self) -> float:
+        return max(self._allow_update_at - time.time(), 0)
+
+    @update_allowed_in.setter
+    def update_allowed_in(self, value: float):
+        self._allow_update_at = time.time() + value
+
+    def update(self):
+        if not self.active:
+            return
+        if self.update_scheduled:
+            return
+        if self.update_allowed_in == 0:
+            self._update_wrapper()
+            return
+        self.update_scheduled = True
+        Thread(target=self._delayed_update, daemon=True).start()
+        logging.debug("Presence update scheduled")
+        
+    def _delayed_update(self):
+        time.sleep(self.update_allowed_in)
+        self.update_scheduled = False
+        self._update_wrapper()
+
+    def _update_wrapper(self):
+        if not self._update():
+            self.active = False
+            logging.info("Discord Presence disabled due to an exception")
+
+    @helpers.log_error
+    def _update(self) -> Literal[True]:
+        if self.update_allowed_in > 0:
+            return True
+        self.update_allowed_in = 16
+        if self.app.selected_player.is_playing:
+            buttons = [
+                {
+                    "label": "Open Stream",
+                    "url": self.app.data.get("station").get("public_player_url")
+                }
+            ]
+            song_id = self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")
+            if song_id:
+                buttons.append({
+                    "label": "Open Song",
+                    "url": self.app.settings.get("open_link")%song_id
+                })
+            self._presence.update(
+                activity_type=pypresence.types.ActivityType.LISTENING,
+                name=self.app.data.get("station").get("name"),
+                state=f"{self.app.data.get("now_playing").get("song").get("artist")} - {self.app.data.get("now_playing").get("song").get("title")}",
+                start=self.app.data.get("now_playing").get("played_at"),
+                end=self.app.data.get("now_playing").get("played_at") + self.app.data.get("now_playing").get("duration"),
+                buttons=buttons
+            )
+        else:
+            self._presence.update(
+                activity_type=pypresence.types.ActivityType.LISTENING,
+                name=self.app.data.get("station").get("name"),
+                state="Paused",
+                buttons=[
+                    {
+                        "label": "Open Stream",
+                        "url": self.app.data.get("station").get("public_player_url")
+                    }
+                ]
+            )
+        logging.debug("Presence Updated Successfully")
+        return True
+
+    def close(self):
+        try:
+            self._presence.clear()
+        finally:
+            self._presence.close()
 
 # --------------------------------
 # Surface Classes
@@ -375,6 +493,7 @@ class PlayPauseButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
             logging.info("Playback resumed")
         else:
             logging.info("Playback paused")
+        self.app.precense.update()
 
     def getRect(self) -> pygame.Rect:
         return pygame.Rect(
@@ -532,6 +651,7 @@ def cleanup(ret: NoneType, self: Main) -> NoReturn:
     if not self.__dict__.get("selected_player") is None:
         self.selected_player.stop()
         self.settings.save()
+        self.precense.close()
     del self
     sys.exit()
 
@@ -634,6 +754,10 @@ class Main(surfaces.ResizeableApp):
             self.selected_player.start()
         self.main_screen.main_container.row1.playpause_btn.set_playing() # set the proper symbol on the play/pause button
 
+        # Load Presence
+        self.precense = Precence(self)
+        self.precense.connect()
+
         # Finish init
         self.initialized = True
         with self.init_lock:
@@ -729,6 +853,7 @@ class Main(surfaces.ResizeableApp):
             logging.debug(f"Song liked: {self.song_liked} (ID: {self.data.get("now_playing").get("song").get("custom_fields").get("songId")})")
             self.main_screen.main_container.row2.like_btn.refresh()
             pygame.display.set_caption(f"{self.data.get("station").get("name")} - {self.data.get("now_playing").get("song").get("title")}")
+            self.precense.update()
         if self.data.get("playing_next").get("played_at")+1 < time.time() and self.data_reload_cooldown < time.time():
             self.data_reload_cooldown = time.time() + 30 # If the thread crashed for some reason we will retry after 30 seconds
             Thread(target=self.reload_data_tick, daemon=True).start()
