@@ -42,6 +42,7 @@ All of the settings are saved in `[Your User Directory]/neuro_21_station_player/
 `size` | `[600, 600]` | The Size of the window, when it starts.
 `data_url` | `"https://radio.twinskaraoke.com/api/ nowplaying_static/neuro_21.json"` | The url to fetch the data from
 `darken_factor` | `0.75` | How much to brighten/darken the blurred area, 0 is completely black and 1 is not darkened at all
+`discord_client_id` | `1493676075128193174` | The bot-id for the discord-presence icon
 `main_container_width` | `0.7` | How wide the blurred area is relatively to the window
 `blur_scale` | `20` | How much the blurred area should be blurred
 `border_radius` | `0.1` | How rounded the edges of the blurred are

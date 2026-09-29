@@ -187,11 +187,13 @@ class Precence:
         self._allow_update_at: float = 0
         self.update_scheduled: bool = False
         self.active: bool = False
+        self.initialized: bool = False
         self._presence = pypresence.presence.Presence(self.app.settings.get("discord_client_id"))
 
     @helpers.log_error
     def connect(self):
         self._presence.connect()
+        self.initialized = True
         self.active = True
         logging.debug("Presence Connected Successfully")
 
@@ -267,6 +269,8 @@ class Precence:
         return True
 
     def close(self):
+        if not self.initialized:
+            return
         try:
             self._presence.clear()
         finally:
