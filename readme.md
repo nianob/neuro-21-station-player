@@ -8,6 +8,7 @@ A small and resource-friendly player for the [Neuro 21 Station](https://radio.tw
 - liking the currently playing song on https://neurokaraoke.com
 - opening the song directly on https://neurokaraoke.com
 - hitting F1 hides the menu
+- discord presence integration
 
 ## Features for advanced users
 
@@ -20,7 +21,6 @@ A small and resource-friendly player for the [Neuro 21 Station](https://radio.tw
 ## Comming Soon™
 
 - A proper settings menu
-- Discord Integration
 
 ## How to run it directly
 
