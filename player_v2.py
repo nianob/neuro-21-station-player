@@ -167,16 +167,23 @@ class Player:
         Thread(target=self._watchdog, daemon=True).start()
 
     def _watchdog(self):
-        logging.debug("Watchdog Started.")
+        logging.debug("Watchdog Started")
+        fails = 0
         while not self._watchdog_stop:
             if not self._player:
                 continue
-            if self._player.poll() is not None:
-                self.restart()
-                logging.debug("Watchdog: Restarted Stream")
+            if self._player.poll() is None:
+                fails = 0
+            else:
+                fails += 1
+                logging.debug(f"Watchdog: Stopped Player detected! ({fails}/3)")
+                if fails >= 3:
+                    self.restart()
+                    fails = 0
+                    logging.debug("Watchdog: Stream Restarted")
             time.sleep(1)
         self._watchdog_running = False
-        logging.debug("Watchdog Stopped.")
+        logging.debug("Watchdog Stopped")
 
 # --------------------------------
 # Discord Precence
@@ -193,11 +200,12 @@ class Precence:
 
     @helpers.log_error
     def connect(self):
-        self.reconnect_allowed_in = 600
+        self.reconnect_allowed_in = 300
         self._presence.connect()
         self.initialized = True
         self.active = True
         logging.debug("Presence Connected Successfully")
+        self.update()
 
     @property
     def reconnect_allowed_in(self) -> float:
@@ -219,6 +227,7 @@ class Precence:
             self.initialized = True
             self.active = True
             logging.debug("Presence (Re)connected Successfully")
+            self.update()
         except Exception as e:
             logging.debug(f"Precense (Re)connect failed: {e}")
 
@@ -232,8 +241,10 @@ class Precence:
 
     def update(self):
         if not self.active:
-            if self.reconnect_allowed_in < 0:
+            if self.reconnect_allowed_in <= 0:
                 self.reconnect()
+            else:
+                logging.debug(f"Did not attempt to (re)connect to discord presence: Retry only allowed in {self.reconnect_allowed_in:.2f}s")
             return
         if self.update_scheduled:
             return
