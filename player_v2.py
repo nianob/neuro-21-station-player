@@ -185,6 +185,7 @@ class Precence:
         logging.debug("Presence Loading")
         self.app = app
         self._allow_update_at: float = 0
+        self._allow_reconnect_at: float = 0
         self.update_scheduled: bool = False
         self.active: bool = False
         self.initialized: bool = False
@@ -192,10 +193,34 @@ class Precence:
 
     @helpers.log_error
     def connect(self):
+        self.reconnect_allowed_in = 600
         self._presence.connect()
         self.initialized = True
         self.active = True
         logging.debug("Presence Connected Successfully")
+
+    @property
+    def reconnect_allowed_in(self) -> float:
+        return max(self._allow_reconnect_at - time.time(), 0)
+
+    @reconnect_allowed_in.setter
+    def reconnect_allowed_in(self, value: float):
+        self._allow_reconnect_at = time.time() + value
+
+    def reconnect(self):
+        self.reconnect_allowed_in = 600
+        if self.initialized:
+            try:
+                self._presence.close()
+            except:
+                pass
+        try:
+            self._presence.connect()
+            self.initialized = True
+            self.active = True
+            logging.debug("Presence (Re)connected Successfully")
+        except Exception as e:
+            logging.debug(f"Precense (Re)connect failed: {e}")
 
     @property
     def update_allowed_in(self) -> float:
@@ -207,6 +232,8 @@ class Precence:
 
     def update(self):
         if not self.active:
+            if self.reconnect_allowed_in < 0:
+                self.reconnect()
             return
         if self.update_scheduled:
             return
