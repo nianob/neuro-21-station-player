@@ -763,7 +763,10 @@ class NextSongTitle(surfaces.Cached, surfaces.Resizing):
         self.parent: NextSongContent
         title = self.app.font.render(self.app.data.get("playing_next").get("song").get("title"), True, self.app.settings.get("button_text_color"))
         author = self.app.font.render(self.app.data.get("playing_next").get("song").get("artist"), True, self.app.settings.get("button_text_color"))
-        title_scale_factor = self.width/max(title.get_width(), author.get_width()*self.app.settings.get("author_scale"))
+        title_scale_factor = min(
+            self.width/max(title.get_width(), author.get_width()*self.app.settings.get("author_scale")),
+            self.parent.height/(title.get_height()+author.get_height())
+        )
         scaled_title = pygame.transform.smoothscale_by(title, title_scale_factor)
         scaled_author = pygame.transform.smoothscale_by(author, title_scale_factor*self.app.settings.get("author_scale"))
         new_height = scaled_title.get_height()+scaled_author.get_height()
