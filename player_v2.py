@@ -382,6 +382,8 @@ class MainContainer(surfaces.Resizing):
         self.title = SongTitle(self)
         self.row1 = ControlsRow1(self)
         self.row2 = ControlsRow2(self)
+        self.next_song_text = NextSongText(self)
+        self.next_song_row = NextSongContainer(self)
         self.height = 0
 
     def getRect(self) -> pygame.Rect:
@@ -397,7 +399,9 @@ class MainContainer(surfaces.Resizing):
             self.title.height +
             self.row1.height +
             self.row2.height +
-            self.app.button_padding +
+            self.next_song_text.height +
+            self.next_song_row.height +
+            self.app.button_padding*2 +
             self.app.content_padding*3
         )
         if self._height != self.height:
@@ -686,6 +690,97 @@ class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
         webbrowser.open(link)
         logging.info(f"Opening {link}")
 
+class NextSongText(surfaces.Resizing, surfaces.ScalingText):
+    def __init__(self, parent: MainContainer):
+        self.parent: MainContainer
+        self.app: Main
+        super().__init__(parent, "Next Up:", parent.app.settings.get("font_color"), parent.app.font)
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.app.content_padding,
+            self.parent.title.height + self.parent.row1.height + self.parent.row2.height + self.app.button_padding*2 + self.app.content_padding*2,
+            self.app.controls_size*2,
+            self.app.content_padding
+        )
+
+class NextSongContainer(surfaces.Resizing):
+    def __init__(self, parent: MainContainer):
+        self.parent: MainContainer
+        self.app: Main
+        super().__init__(parent)
+        self.content = NextSongContent(self)
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.app.content_padding,
+            self.parent.title.height + self.parent.row1.height + self.parent.row2.height + self.app.button_padding*2 + self.app.content_padding*3,
+            self.parent.width - self.app.content_padding*2,
+            self.app.controls_size*2
+        )
+
+    def render(self):
+        pygame.draw.rect(self.surface, self.app.settings.get("progress_bar_color"), (0, 0, *self.size), border_radius=int(self.app.content_padding))
+        super().render()
+    
+class NextSongContent(surfaces.Resizing):
+    def __init__(self, parent: NextSongContainer):
+        self.parent: NextSongContainer
+        self.app: Main
+        super().__init__(parent)
+        self.image = NextSongImage(self)
+        self.title = NextSongTitle(self)
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.app.content_padding/2,
+            self.app.content_padding/2,
+            self.parent.width - self.app.content_padding,
+            self.parent.height - self.app.content_padding
+        )
+
+class NextSongImage(surfaces.Cached, surfaces.Resizing):
+    def __init__(self, parent: NextSongContent):
+        self.parent: NextSongContent
+        self.app: Main
+        super().__init__(parent)
+
+    def render(self):
+        scaled = pygame.transform.smoothscale(self.app.next_converted_image, self.size)
+        self.surface.blit(scaled, (0, 0))
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            0,
+            0,
+            self.parent.height,
+            self.parent.height
+        )
+
+class NextSongTitle(surfaces.Cached, surfaces.Resizing):
+    def render(self):
+        self.app: Main
+        self.parent: NextSongContent
+        title = self.app.font.render(self.app.data.get("playing_next").get("song").get("title"), True, self.app.settings.get("button_text_color"))
+        author = self.app.font.render(self.app.data.get("playing_next").get("song").get("artist"), True, self.app.settings.get("button_text_color"))
+        title_scale_factor = self.width/max(title.get_width(), author.get_width()*self.app.settings.get("author_scale"))
+        scaled_title = pygame.transform.smoothscale_by(title, title_scale_factor)
+        scaled_author = pygame.transform.smoothscale_by(author, title_scale_factor*self.app.settings.get("author_scale"))
+        new_height = scaled_title.get_height()+scaled_author.get_height()
+        if new_height != self.height:
+            self.height = new_height
+            self.resize()
+        self.surface.blit(scaled_title, (self.width/2 - scaled_title.get_width()/2, 0))
+        self.surface.blit(scaled_author, (self.width/2 - scaled_author.get_width()/2, scaled_title.get_height()))
+
+    def getRect(self) -> pygame.Rect:
+        return pygame.Rect(
+            self.app.button_padding+self.parent.image.width,
+            self.parent.height/2-self.height/2,
+            self.parent.width-self.parent.image.width-self.app.button_padding,
+            self.height
+        )
+
 # --------------------------------
 # Main App
 
@@ -726,7 +821,7 @@ class Main(surfaces.ResizeableApp):
         self.login_nkh = False
         self.init_lock = Lock()
         self.init_lock.acquire()
-        self.init_thread = Thread(target=self.init, daemon=True).start()
+        Thread(target=self.init, daemon=True).start()
 
         pygame.font.init()
         self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
@@ -737,8 +832,10 @@ class Main(surfaces.ResizeableApp):
         self.initialized = False
         self._screen_lock = Lock()
         self._image_lock = Lock()
+        self._next_image_lock = Lock()
 
         self.raw_image: Image.Image
+        self.next_raw_image: Image.Image
 
         self.init_lock.release()
         logging.info("Main thread init finished")
@@ -755,10 +852,12 @@ class Main(surfaces.ResizeableApp):
         self.data_reload_cooldown = 0
         self.data_reloaded = False
         self.image_reloaded = False
+        self.next_image_reloaded = False
         self.song_liked = False
 
         # Load Data
         self.data = None # We need to define it in order for it to not crash, is overwritten in refresh_data    # pyright: ignore[reportAttributeAccessIssue]
+        self.next_raw_image = None # Same here     # pyright: ignore[reportAttributeAccessIssue]
         if not self.refresh_data(fully_initialized=False):
             self.data = fallbackData
 
@@ -781,6 +880,7 @@ class Main(surfaces.ResizeableApp):
         # Surfaces
         self.converted_image = pygame.Surface((1, 1))
         self.blurred_image = pygame.Surface((1, 1))
+        self.next_converted_image = pygame.Surface((1, 1))
         self.no_menu_screen = NoMenuScreen(self)
         self.main_screen = MainScreen(self)
         self.bg_image = BgImage(self.main_screen)
@@ -849,14 +949,24 @@ class Main(surfaces.ResizeableApp):
         """Refreshes the data from the station"""
         old_songid = self.data.get("now_playing").get("song").get("id") if self.data else None
         old_art = self.data.get("now_playing").get("song").get("art") if self.data else None
+        old_next_art = self.data.get("playing_next").get("song").get("art") if self.data else None
         self.data = self.fetch_data()
         if old_songid == self.data.get("now_playing").get("song").get("id"):
             return True
         self.data_reloaded = True
-        if old_art != self.data.get("now_playing").get("song").get("art"):
+        if old_next_art == self.data.get("now_playing").get("song").get("art") and self.next_raw_image:
+            with self._image_lock:
+                with self._next_image_lock:
+                    self.raw_image = self.next_raw_image
+            self.image_reloaded = True
+        elif old_art != self.data.get("now_playing").get("song").get("art"):
             with self._image_lock:
                 self.raw_image = Image.open(self.fetch_image(self.data.get("now_playing").get("song").get("art")))
-                self.image_reloaded = True
+            self.image_reloaded = True
+        if old_next_art != self.data.get("playing_next").get("song").get("art"):
+            with self._next_image_lock:
+                self.next_raw_image = Image.open(self.fetch_image(self.data.get("playing_next").get("song").get("art")))
+                self.next_image_reloaded = True
         if fully_initialized and self.selected_player.is_playing:
             nkh.send_playcount(str(self.data.get("now_playing").get("song").get("custom_fields").get("songId")))
             logging.debug("Playcount request sent!")
@@ -885,6 +995,12 @@ class Main(surfaces.ResizeableApp):
             self.bg_image.redraw = True
             self.no_menu_screen.redraw = True
             self.main_screen.main_container.bg.redraw = True
+        if self.next_image_reloaded and self._next_image_lock.acquire(blocking=False):
+            logging.debug("Next Image reload recieved")
+            self.next_image_reloaded = False
+            self.next_converted_image = pygame.image.frombytes(self.next_raw_image.tobytes(), self.next_raw_image.size, self.next_raw_image.mode) # pyright: ignore[reportArgumentType]
+            self._next_image_lock.release()
+            self.main_screen.main_container.next_song_row.content.image.redraw = True
         if self.data_reloaded:
             logging.debug("Data reload recieved")
             self.data_reloaded = False
