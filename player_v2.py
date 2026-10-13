@@ -277,11 +277,10 @@ class Precence:
                     "url": self.app.data.get("station").get("public_player_url")
                 }
             ]
-            song_id = self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")
-            if song_id:
+            if not self.app.no_song_id:
                 buttons.append({
                     "label": "Open Song",
-                    "url": self.app.settings.get("open_link")%song_id
+                    "url": self.app.current_open_link
                 })
             self._presence.update(
                 activity_type=pypresence.types.ActivityType.LISTENING,
@@ -686,7 +685,7 @@ class OpenButton(surfaces.Cached, surfaces.Resizing, surfaces.ImageButton):
         )
     
     def onButtonClicked(self) -> None:
-        link = self.app.settings.get("open_link")%self.app.data.get("now_playing").get("song").get("custom_fields").get("songId")
+        link = self.app.current_open_link
         webbrowser.open(link)
         logging.info(f"Opening {link}")
 
@@ -934,8 +933,27 @@ class Main(surfaces.ResizeableApp):
                         self.FPS = self.settings.get("fps")
                         logging.debug(f"FPS set to {self.FPS}")
 
+    @property
+    def no_song_id(self) -> bool:
+        """returns True if the current song doesn't have a song id"""
+        return self.data.get("now_playing").get("song").get("custom_fields").get("songId") is None
+
+    @property
+    def abnormal_song_id(self) -> bool:
+        """returns True if the current song id is not a default song id"""
+        songId: Optional[str] = self.data.get("now_playing").get("song").get("custom_fields").get("songId")
+        if songId is None:
+            return False
+        return songId.startswith("http://") or songId.startswith("https://")
+
+    @property
+    def current_open_link(self) -> str:
+        if self.abnormal_song_id:
+            return str(self.data.get("now_playing").get("song").get("custom_fields").get("songId"))
+        return self.settings.get("open_link")%str(self.data.get("now_playing").get("song").get("custom_fields").get("songId"))
+
     def reload_favourites(self):
-        self.favourites = [x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None]
+        self.favourites: set[str] = set([x.get("songId") for x in nkh.get_favourites() if not x.get("songId", None) is None])
 
     def fetch_data(self) -> StationResponse:
         response = requests.get(self.settings.get("data_url"))
@@ -971,8 +989,11 @@ class Main(surfaces.ResizeableApp):
                 self.next_raw_image = Image.open(self.fetch_image(self.data.get("playing_next").get("song").get("art")))
                 self.next_image_reloaded = True
         if fully_initialized and self.selected_player.is_playing:
-            nkh.send_playcount(str(self.data.get("now_playing").get("song").get("custom_fields").get("songId")))
-            logging.debug("Playcount request sent!")
+            if self.abnormal_song_id:
+                logging.debug("Didn't send playcount request: Abnormal Song id")
+            else:
+                nkh.send_playcount(str(self.data.get("now_playing").get("song").get("custom_fields").get("songId")))
+                logging.debug("Playcount request sent!")
         return True
 
     def reload_data_tick(self):
@@ -1008,8 +1029,8 @@ class Main(surfaces.ResizeableApp):
             logging.debug("Data reload recieved")
             self.data_reloaded = False
             self.main_screen.main_container.title.redraw = True
-            self.main_screen.main_container.row2.open_btn.enabled = bool(self.data.get("now_playing").get("song").get("custom_fields").get("songId"))
-            self.main_screen.main_container.row2.like_btn.enabled = self.main_screen.main_container.row2.open_btn.enabled
+            self.main_screen.main_container.row2.open_btn.enabled = not self.abnormal_song_id
+            self.main_screen.main_container.row2.like_btn.enabled = not self.no_song_id
             self.song_liked = self.data.get("now_playing").get("song").get("custom_fields").get("songId") in self.favourites
             logging.debug(f"Song liked: {self.song_liked} (ID: {self.data.get("now_playing").get("song").get("custom_fields").get("songId")})")
             self.main_screen.main_container.row2.like_btn.refresh()
