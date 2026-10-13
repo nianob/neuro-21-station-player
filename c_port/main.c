@@ -3,4 +3,5 @@
 
 int main(void) {
     printf("Starting...\n");
+    Surface_setup();
 }

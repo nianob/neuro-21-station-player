@@ -3,6 +3,13 @@
 
 int SURFACE_MAX_CHILDS = 8;
 
+SDL_Renderer *renderer;
+
+void Surface_setup() {
+    SDL_Window *window = SDL_CreateWindow("Dummy Title", 0, 0, 500, 500, 0);
+    renderer = SDL_CreateRenderer(window, 0, 0);
+}
+
 App* Surface_getApp(Surface *self) {
     if (self->cls->app) {
         return self->cls->app;
@@ -29,12 +36,15 @@ int Surface_getY(Surface *self) {
     }
 }
 
-void Surface_reallocateTexture(Surface *self, SDL_Renderer *renderer) {
+void Surface_reallocateTexture(Surface *self) {
     if (self->texture) {
         SDL_DestroyTexture(self->texture);
         self->texture = NULL;
     }
-    if (self->rect.w <= 0 || self->rect.h <= 0) return;
+    if (self->rect.w <= 0 || self->rect.h <= 0) {
+        printf("WARNING: Attempted to set surface size <= 0!\n");
+        return;
+    };
 
     self->texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, self->rect.w, self->rect.h);
     SDL_SetTextureBlendMode(self->texture, SDL_BLENDMODE_BLEND);
@@ -45,14 +55,14 @@ void Surface_reallocateTexture(Surface *self, SDL_Renderer *renderer) {
 }
 
 // Updates the surface and all subsurfaces
-void Surface_update(Surface *self, SDL_Renderer *renderer) {
+void Surface_update(Surface *self) {
     if (self->cls->cached) {
         if (!self->redraw) return;
         self->redraw = 0;
     }
 
     for (int i=0; i<self->childCount; i++) {
-        Surface_update(self->children[i], renderer);
+        Surface_update(self->children[i]);
     }
 
     SDL_SetRenderTarget(renderer, self->texture);
@@ -122,8 +132,8 @@ char passFunction(Surface *self, SurfaceFunc func, int x, int y) {
 }
 
 void Surface_onClick(Surface *self, int x, int y) {
-    if (self->cls->Surface_onClick) {
-        if (!self->cls->Surface_onClick(self, x, y)) {
+    if (self->cls->onClick) {
+        if (!self->cls->onClick(self, x, y)) {
             return;
         }
     }
@@ -136,8 +146,8 @@ void Surface_setCursor(Surface *self, int x, int y) {
     }
 }
 
-void Surface_onResize(Surface *self, SDL_Renderer *renderer) {
-    Surface_reallocateTexture(self, renderer);
+void Surface_onResize(Surface *self) {
+    Surface_reallocateTexture(self);
     for (int i=0; i<self->childCount; i++) {
         Surface *child = self->children[i];
         if (child->cls->cached) {
@@ -148,8 +158,8 @@ void Surface_onResize(Surface *self, SDL_Renderer *renderer) {
         }
     }
 
-    if (self->cls->Surface_onResize) {
-        self->cls->Surface_onResize(self);
+    if (self->cls->onResize) {
+        self->cls->onResize(self);
     }
 }
 
@@ -180,4 +190,39 @@ void Surface_removeChild(Surface *self, Surface *child) {
     for (int i=pos; i<self->childCount; i++) {
         self->children[i] = self->children[i+1];
     }
+
+    child->parent = NULL;
+}
+
+Surface* Surface_create(SurfaceClass *cls, Surface* parent, SDL_Rect *rect) {
+    Surface *self = calloc(1, sizeof *self);
+    self->cls = cls;
+    if (parent) {
+        Surface_addChild(parent, self);
+    }
+    if (rect) {
+        self->rect = *rect;
+    } else {
+        self->rect = (SDL_Rect){0, 0, 1, 1};
+    }
+    Surface_onResize(self);
+    return self;
+}
+
+void Surface_destroy(Surface *self) {
+    if (self->data) {
+        free(self->data);
+    }
+    if (self->parent) {
+        Surface_removeChild(self->parent, self);
+    }
+    SDL_DestroyTexture(self->texture);
+    free(self);
+}
+
+void Surface_destroyRecursive(Surface *self) {
+    while (self->childCount > 0) {
+        Surface_destroyRecursive(self->children[0]);
+    }
+    Surface_destroy(self);
 }

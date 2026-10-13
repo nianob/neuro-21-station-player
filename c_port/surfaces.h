@@ -7,8 +7,8 @@ typedef struct Surface Surfce;
 typedef struct {
     void (*render)(struct Surface *self, SDL_Renderer *r);
     // The function running when the object is clicked. Returns 1 if click should propagate
-    char (*Surface_onClick)(struct Surface *self, int x, int y);
-    void (*Surface_onResize)(struct Surface *self);
+    char (*onClick)(struct Surface *self, int x, int y);
+    void (*onResize)(struct Surface *self);
     SDL_Rect (*getRect)(struct Surface *self);
     SDL_Cursor *cursor;
     App *app;
@@ -23,4 +23,19 @@ typedef struct Surface {
     struct Surface *children[8];
     int childCount;
     char redraw;
+    void *data;
 } Surface;
+
+App* Surface_getApp(Surface *self);
+
+int Surface_getX(Surface *self);
+
+int Surface_getY(Surface *self);
+
+Surface* Surface_create(SurfaceClass *cls, Surface* parent, SDL_Rect *rect);
+
+void Surface_destroy(Surface *self);
+
+void Surface_destroyRecursive(Surface *self);
+
+void Surface_setup();

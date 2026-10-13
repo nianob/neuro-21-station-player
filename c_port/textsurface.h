@@ -2,6 +2,6 @@
 #include "surfaces.h"
 
 typedef struct {
-    Surface* surface;
-    char* text;
+    char *text;
+    SDL_Color *color;
 } TextSurface;
