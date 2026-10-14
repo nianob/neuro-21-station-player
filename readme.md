@@ -62,3 +62,4 @@ All of the settings are saved in `[Your User Directory]/neuro_21_station_player/
 `reduce_fps` | `"hidden"` | When to reduce the fps. Possible options: `"never"`, `"hidden"`, `"unfocused"`
 `fps` | `60` | The maximum framerate of the app
 `reduced_fps` | `2` | The maximum framerate when the fps are reduced
+`font` | `noto sans cjk jp` | The system font to use

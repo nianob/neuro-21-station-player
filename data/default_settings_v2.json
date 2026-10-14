@@ -21,5 +21,6 @@
     "volume": 0.15,
     "reduce_fps": "hidden",
     "fps": 60,
-    "reduced_fps": 2
+    "reduced_fps": 2,
+    "font": "noto sans cjk jp"
 }

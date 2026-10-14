@@ -826,7 +826,7 @@ class Main(surfaces.ResizeableApp):
         Thread(target=self.init, daemon=True).start()
 
         pygame.font.init()
-        self.font = pygame.font.SysFont(pygame.font.get_default_font(), 400)
+        self.font = pygame.font.SysFont(self.settings.get("font"), 400)
         super().__init__(self.settings.get("size"), LoadingScreen)
         pygame.display.set_caption("Neuro 21 Station Player - Loading")
         pygame.display.set_icon(pygame.image.load(os.path.join(self.working_dir, "data", "icon.ico")))
