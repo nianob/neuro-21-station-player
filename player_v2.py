@@ -1027,8 +1027,8 @@ class Main(surfaces.ResizeableApp):
             logging.debug("Data reload recieved")
             self.data_reloaded = False
             self.main_screen.main_container.title.redraw = True
-            self.main_screen.main_container.row2.open_btn.enabled = not self.abnormal_song_id
-            self.main_screen.main_container.row2.like_btn.enabled = not self.no_song_id
+            self.main_screen.main_container.row2.open_btn.enabled = not self.no_song_id
+            self.main_screen.main_container.row2.like_btn.enabled = not self.abnormal_song_id
             self.song_liked = self.data.get("now_playing").get("song").get("custom_fields").get("songId") in self.favourites
             logging.debug(f"Song liked: {self.song_liked} (ID: {self.data.get("now_playing").get("song").get("custom_fields").get("songId")})")
             self.main_screen.main_container.row2.like_btn.refresh()
