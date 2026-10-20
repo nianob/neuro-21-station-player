@@ -942,9 +942,7 @@ class Main(surfaces.ResizeableApp):
     def abnormal_song_id(self) -> bool:
         """returns True if the current song id is not a default song id"""
         songId: Optional[str] = self.data.get("now_playing").get("song").get("custom_fields").get("songId")
-        if songId is None:
-            return False
-        return songId.startswith("http://") or songId.startswith("https://")
+        return songId is None or songId.startswith("http://") or songId.startswith("https://")
 
     @property
     def current_open_link(self) -> str:
